@@ -122,6 +122,11 @@ on Windows it runs unpatched in its own console window (`Console.Clear` throws o
 | Keygen time | 0.4–1.4 s per wallet → no pool | SimClient `ready.keygenMs` |
 | Core k quirks met | RocksDB 11.1.2 lacks `SetWALTtlSeconds` (pin 10.4.2.64152, as the redesign); `NetworkClientManagerStatic` needs ≥ 3 neighbours; client threads are foreground (explicit `Environment.Exit`) | runs 36840465376, 36844069755, 36844824431 |
 
+*Session 4 (B1a, D-045):* D-044 guard in `BotProcess.WaitForHeaderAsync`; scenarios `Join_Handshake`,
+`Relay_Echo_Ack` (grown from `Join_Post_Receive`), `History_Cursor` in `tests/Harness` (Contract.Tests deferred); one
+self-test job per break (`relay`, `ack`, `info`, `cursor`, `seed-none`), all proven in CI run 36856754230. New
+divergence: SimClient `refresh` replays the new-connection cascade without a TCP reconnect (README).
+
 Known limits: store mode runs on Core k (W3, hypothesis until BE-04); CI depends on the public Ixian testnet for a
 header; the receive check rules out replay after a reconnect, not a second channel list without reconnect (review R2
 r2); the log tail reads text, not bytes (review R1 n2; the bot log is ASCII).

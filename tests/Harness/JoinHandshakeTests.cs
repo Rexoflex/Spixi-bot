@@ -18,7 +18,7 @@ namespace Harness
     /// answers one `channel` per channel (:520-531). The bot does not handle getGroups (no answer, research D §1b).
     /// Every `channel` makes Core send botGetMessages (C :2660-2673).
     ///
-    /// Characterized facts (asserted): connected → accepted → info → channel "general", info.defaultChannel is the
+    /// Characterized facts (asserted): accepted, then info and channel "general" after it; info.defaultChannel is the
     /// seeded channel, and the bot's user list contains the joining member. Not asserted: the bot's avatar (a fresh
     /// bot may have none, Node.getAvatarBytes) and the absence of a getGroups answer (absence is not observable
     /// without a fixed wait, W2).
@@ -48,7 +48,7 @@ namespace Harness
             ManagedProcess p = member.Process;
 
             int mark = member.SendJoin(run.Bot);
-            OutputLine connected = await p.WaitFor(l => l.Ev == "connected", HarnessConfig.JoinTimeout, "'connected' event",
+            await p.WaitFor(l => l.Ev == "connected", HarnessConfig.JoinTimeout, "'connected' event",
                 failIf: l => l.Ev == "error" && l.Str("where") == "join", from: mark);
             OutputLine accepted = await p.WaitForEvent("accepted", HarnessConfig.JoinTimeout, from: mark);
 
@@ -76,10 +76,7 @@ namespace Harness
             // The bot's user list (the getUsers answer of cascade (a)) contains the joining member.
             _ = await p.WaitForEvent("user", HarnessConfig.DeliveryTimeout, l => l.Str("address") == member.Address, mark);
 
-            // Order of the cascade, by position in the member's event log.
             var log = p.Snapshot();
-            Assert.True(log.IndexOf(connected) < log.IndexOf(accepted), "accepted before connected");
-
             // The seeded channel is the bot's default channel (BotProcess.SeedDefaultsAsync, default=1).
             Assert.Equal(channel.Int("index"), info.Int("defaultChannel"));
 

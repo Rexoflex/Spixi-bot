@@ -67,11 +67,16 @@ namespace Harness
         public async Task<string> PostAndWaitAckAsync(int channel, string text)
         {
             int mark = Post(channel, text);
-            OutputLine posted = await Process.WaitForEvent("posted", HarnessConfig.DeliveryTimeout, l => l.Str("text") == text, mark).ConfigureAwait(false);
+            OutputLine posted = await WaitPostedAsync(text, mark).ConfigureAwait(false);
             string id = posted.Str("id") ?? throw new InvalidOperationException("posted event without a message id");
             await Process.WaitForEvent("ack", HarnessConfig.DeliveryTimeout, l => l.Str("id") == id, mark).ConfigureAwait(false);
             return id;
         }
+
+        /// <summary>Waits for the `posted` event of <paramref name="text"/>; a failed post command ends the wait at once.</summary>
+        public Task<OutputLine> WaitPostedAsync(string text, int from) =>
+            Process.WaitFor(l => l.Ev == "posted" && l.Str("text") == text, HarnessConfig.DeliveryTimeout, "'posted' event",
+                failIf: l => l.Ev == "error" && l.Str("where") == "command", from: from);
 
         /// <summary>No sign that the process cannot go on (exit, crash, fatal, a dropped message or an error).</summary>
         public bool Healthy() => !Process.Snapshot().Any(l => l.Ev is "exited" or "crashed" or "fatal" or "dropped" or "error");

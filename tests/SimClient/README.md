@@ -5,12 +5,12 @@ Compiled against the **client** Core (`097341a`, xcore-0.9.8k), never together w
 
 ```
 dotnet build tests/SimClient -c Release -p:ClientCorePath=<Core 097341a checkout>
-dotnet tests/SimClient/bin/Release/net10.0/SimClient.dll --app store|redesign --data <dir> [--name n]
+dotnet tests/SimClient/bin/Release/net10.0/SimClient.dll --app store|redesign --data <dir> [--name n] [--wallet-password pw]
 ```
 
 Control: one JSON command per stdin line (`join`, `post`, `refresh`, `set-cursor`, `quit`). Output: one JSON
 event per stdout line (`ready`, `fatal`, `connected`, `hello_rejected`, `hello_attempts`, `join_sent`, `accepted`,
-`info`, `channel`, `user`, `bot_action`, `posted`, `ack`, `received` (with `self` and `stored`), `refresh_sent`,
+`info`, `channel`, `user`, `bot_action`, `posted`, `ack`, `received` (with `self` and `stored`), `refresh_sent` (with the stored `cursors`),
 `cursor_set`, `dropped`, `other`, `sent`, `expired`, `stream_error`, `error`, `crashed`, `bye`).
 Core logs go to `<data>/ixian.log`, never to stdout. The process exits with `Environment.Exit` after `quit` or
 stdin EOF, because Core's client threads are foreground threads.

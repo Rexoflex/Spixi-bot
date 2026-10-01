@@ -20,9 +20,11 @@ namespace Harness
     ///
     /// Self-tests (L5, L18), CI matrix `variant`:
     ///   relay: the break removes the relay statement (:418). Both cases must fail with W8-RELAY-MISSING[case],
-    ///          thrown only when the bot acked this post and the receiver stayed healthy.
+    ///          thrown only when the bot acked this post, the receiver stayed healthy and its own probe post was
+    ///          acked (its link is up).
     ///   ack:   the break removes the chat ack (:76). Both cases must fail with ACK-MISSING[case], thrown only when
-    ///          the receiver got the relay (so the bot processed the post) and the poster stayed healthy.
+    ///          the receiver got the relay (so the bot processed the post), the poster got its own echo (its link is
+    ///          up) and stayed healthy.
     /// </summary>
     public sealed class RelayEchoAckTests
     {
@@ -50,7 +52,7 @@ namespace Harness
 
             string text = $"harness {caseLabel} {System.Guid.NewGuid():N}";
             int mark = poster.Post(channel, text);
-            OutputLine posted = await poster.Process.WaitForEvent("posted", HarnessConfig.DeliveryTimeout, l => l.Str("text") == text, mark);
+            OutputLine posted = await poster.WaitPostedAsync(text, mark);
             string? postedId = posted.Str("id");
             Assert.False(string.IsNullOrEmpty(postedId), "posted event without a message id");
             bool Acked() => poster.Process.Since(mark).Any(l => l.Ev == "ack" && l.Str("id") == postedId);
@@ -64,19 +66,29 @@ namespace Harness
             }
             catch (HarnessTimeoutException e)
             {
+                // L18 (review R2 item 3): "healthy" does not prove the receiver is still connected; an acked probe
+                // from the receiver does.
+                bool receiverLinked = false;
                 if (Acked() && receiver.Healthy())
+                {
+                    try { await receiver.PostAndWaitAckAsync(channel, $"probe {caseLabel} {System.Guid.NewGuid():N}"); receiverLinked = true; }
+                    catch (HarnessTimeoutException) { }
+                }
+                if (receiverLinked)
                 {
                     throw new HarnessTimeoutException($"{Markers.Tag(Markers.RelayMissing, caseLabel)}: the bot acked the post but the healthy receiver never got it. {e.Message}");
                 }
-                throw new HarnessTimeoutException($"receiver got nothing (acked={Acked()}, receiver healthy={receiver.Healthy()}); not a clean relay failure. {e.Message}");
+                throw new HarnessTimeoutException($"receiver got nothing (acked={Acked()}, receiver healthy={receiver.Healthy()}, receiver link proven={receiverLinked}); not a clean relay failure. {e.Message}");
             }
             Assert.Equal(poster.Address, got.Str("from"));
             Assert.Equal(channel, got.Int("channel"));
             Assert.Equal(postedId, got.Str("id"));
             Assert.True(got.Event?.GetProperty("stored").GetBoolean() == true, "the receiver's Core did not store the relayed message");
 
-            // Delivery must be the live relay, not a history replay after a reconnect (botGetMessages follows every
-            // channel list, Core CoreStreamProcessor.cs:2660-2673): the receiver connected exactly once.
+            // Delivery should be the live relay, not a history replay after a reconnect (botGetMessages follows every
+            // channel list, Core CoreStreamProcessor.cs:2660-2673): the receiver connected exactly once. This rules out
+            // a reconnect replay; a late answer to the join's own botGetMessages cannot carry this post (it did not
+            // exist yet when the receiver joined, and the bot answers in order).
             int receiverConnects = receiver.Process.Snapshot().Count(l => l.Ev == "connected" && l.At <= got.At);
             Assert.True(receiverConnects == 1, $"receiver connected {receiverConnects} times; a reconnect could deliver by history replay (review R1 m1)");
 
@@ -89,11 +101,20 @@ namespace Harness
             catch (HarnessTimeoutException e)
             {
                 string seen = string.Join(", ", poster.Process.Since(mark).Where(l => l.Ev == "ack").Select(l => l.Str("id")));
-                if (poster.Healthy())
+                // L18 (review R2 item 2): the poster's own echo proves its connection is up; with the `ack` break the
+                // relay still runs, so the echo still arrives.
+                bool posterLinked = false;
+                try
                 {
-                    throw new HarnessTimeoutException($"{Markers.Tag(Markers.AckMissing, caseLabel)}: the bot relayed the post but never acked it to the healthy poster; acks seen: [{seen}]. {e.Message}");
+                    await poster.Process.WaitForEvent("received", HarnessConfig.DeliveryTimeout, l => l.Str("text") == text, mark);
+                    posterLinked = true;
                 }
-                throw new HarnessTimeoutException($"no ack and the poster was not healthy; acks seen: [{seen}]. {e.Message}");
+                catch (HarnessTimeoutException) { }
+                if (posterLinked && poster.Healthy())
+                {
+                    throw new HarnessTimeoutException($"{Markers.Tag(Markers.AckMissing, caseLabel)}: the bot relayed the post (also to the poster) but never acked it; acks seen: [{seen}]. {e.Message}");
+                }
+                throw new HarnessTimeoutException($"no ack (poster healthy={poster.Healthy()}, poster link proven={posterLinked}); acks seen: [{seen}]. {e.Message}");
             }
             Assert.Equal(channel, ack.Int("channel"));
 
