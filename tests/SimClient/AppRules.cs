@@ -1,6 +1,7 @@
 using System;
 using System.Text;
 using IXICore;
+using IXICore.Meta;
 using IXICore.Streaming;
 
 namespace SimClient
@@ -59,6 +60,87 @@ namespace SimClient
             }
             CoreStreamProcessor.sendChatMessage(bot, fm!, channel);
             return fm;
+        }
+
+        /// <summary>
+        /// React = store the reaction locally, and send it only if Core stored it.
+        /// U Pages/Chat/SingleChatPage.xaml.cs:1045-1058 and R :2521-2541 are the same on the wire:
+        /// address = own primary address; friend.addReaction(address, new ReactionMessage(msg_id, "like:"), channel);
+        /// only when that returns true → updateReactions (UI) and StreamProcessor.sendReaction(friend, msg_id,
+        /// "like:", channel). The apps only send "like:"; the harness passes the reaction text through (Core k
+        /// Friend.cs:983-1044 accepts tip:/like:/received:/seen:/fileReceived:, max 32 chars, target stored).
+        /// The blind-group branch (U :1047-1053, R :2528-2535) applies only to FriendType.Group; a bot friend is
+        /// FriendType.Normal (AddBotContact), so the address stays the primary address in both apps.
+        /// Returns whether Core stored the reaction locally (and so whether it was sent).
+        /// </summary>
+        public static bool React(Friend friend, byte[] msgId, string reaction, int channel)
+        {
+            Address address = IxianHandler.getWalletStorage().getPrimaryAddress();
+            if (!friend.addReaction(address, new ReactionMessage(msgId, reaction), channel))
+            {
+                return false;
+            }
+            CoreStreamProcessor.sendReaction(friend, msgId, reaction, channel);   // Core k CoreStreamProcessor.cs:2882-2887
+            return true;
+        }
+
+        /// <summary>
+        /// Delete = send msgDelete; delete locally only for a non-bot friend.
+        /// U Pages/Chat/SingleChatPage.xaml.cs:1034-1043 and R :2494-2519: StreamProcessor.sendMsgDelete(friend,
+        /// msg_id, channel); then `if (!friend.bot) friend.deleteMessage(...)`. For a bot the local row goes only
+        /// when the bot relays the delete back (Core k CoreStreamProcessor.cs:1349-1366 → handleMsgDelete :1665).
+        /// R's own-file-offer cancel (R :2501-2507) is a file-transfer rule: NO-OP here (no files).
+        /// </summary>
+        public static void Delete(Friend friend, byte[] msgId, int channel)
+        {
+            CoreStreamProcessor.sendMsgDelete(friend, msgId, channel);           // Core k CoreStreamProcessor.cs:2852-2857
+            if (!friend.bot)
+            {
+                friend.deleteMessage(msgId, channel);                            // Core k Friend.cs:949
+            }
+        }
+
+        /// <summary>
+        /// Leave the bot. The apps differ:
+        /// Store: U Pages/Contacts/ContactDetails.xaml.cs onRemove :122-146. A bot with botInfo is NOT removed:
+        ///   pendingDeletion = true; save(); CoreStreamProcessor.sendLeave(friend, null). The friend stays until the
+        ///   bot's leaveConfirmed arrives. A bot without botInfo goes through FriendList.removeFriend (no leave sent).
+        /// Redesign: R Utils/SContacts.cs leaveGroup :70-119. sendLeave(group, null) inside try/catch (R :97-105; a
+        ///   throw is logged by type only), then FriendList.removeFriend(group) at once (R :108; #567: no
+        ///   pendingDeletion wait).
+        /// `sent` reports whether sendLeave was called without a throw; the return value is whether the friend
+        /// was removed from the friend list.
+        /// </summary>
+        public static bool Leave(Friend friend, out bool sent)
+        {
+            sent = false;
+            if (Mode == AppMode.Store)
+            {
+                if (friend.bot && friend.metaData.botInfo != null)
+                {
+                    friend.pendingDeletion = true;                               // U :126
+                    friend.save();                                               // U :127
+                    CoreStreamProcessor.sendLeave(friend, null);                 // U :129, Core k CoreStreamProcessor.cs:2916-2922
+                    sent = true;
+                    return false;
+                }
+                return FriendList.removeFriend(friend);                          // U :135
+            }
+
+            if (!friend.bot && friend.type != FriendType.Group)                 // R :72-75
+            {
+                return false;
+            }
+            try
+            {
+                CoreStreamProcessor.sendLeave(friend, null);                     // R :97-105 (try/catch)
+                sent = true;
+            }
+            catch (Exception ex)
+            {
+                Logging.warn("leaveGroup: the leave notice could not be sent (" + ex.GetType().Name + ")");   // R :101-105
+            }
+            return FriendList.removeFriend(friend);                              // R :108, Core k FriendList.cs:429-460
         }
 
         /// <summary>

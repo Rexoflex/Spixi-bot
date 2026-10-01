@@ -174,7 +174,7 @@ Legend: **C→B** = client to bot, **B→C** = bot to client. "Relay" = the bot 
 |---|---|
 | New `SpixiBotActionCode` values (≥14) sent B→C | Unknown ⇒ `return false`, dropped silently (C `:2733-2735`) |
 | New `SpixiMessageCode` values sent B→C **without `groupAddress`**. Prefer 0xF0-0xFF "reserved for custom apps" | Core default + app switch without default (C `:1589`; U/R switch) |
-| Trailing fields after `hideParticipantAddresses` in `BotInfo` | Conditional reader stops there (C `BotInfo.cs:47-74`) |
+| Trailing fields after `hideParticipantAddresses` in `BotInfo` | Conditional reader stops there (C `BotInfo.cs:47-74`). ⚠ *Session 5 (characterized, `Unknown_Codes`):* only **after** hide. Bytes after `userCount` without randomId+hide are read as `IxiBytes randomId · bool` (C `BotInfo.cs:70-74`); junk there throws `EndOfStream`, Core catches it (`:1593`) and **drops the whole info** — no nickname/botInfo update and no `getChannels`. A writer must emit randomId + hide before any new field (D-048). |
 | Trailing fields after `name` in `BotChannel` | Reader reads 2 fields (C `BotChannel.cs:28-38`) |
 | Trailing fields after `status` in `BotContact` | Tail wrapped in try/catch (C `BotContact.cs:101-115`) |
 | Trailing bytes after `groupSenderAddress` in the SpixiMessage envelope (**must** write channel + both empty IxiBytes first) | Reader stops after the two IxiBytes (C `SpixiMessage.cs:117-126`) |
@@ -208,7 +208,11 @@ Legend: **C→B** = client to bot, **B→C** = bot to client. "Relay" = the bot 
 ## 8. Contract-test checklist (derived)
 
 *Status (session 4, D-045):* items 1–3 characterized green in CI (`Join_Handshake`, `History_Cursor`,
-`Relay_Echo_Ack`, run 36856754230); items 4, 5, 7 next; item 6 after W12.
+`Relay_Echo_Ack`, run 36856754230). *Session 5 (D-047):* item 4 `React_Delete`, item 5 `Unknown_Codes`, item 6
+`Leave` (store → `crashed`, W12), item 7 `Info_Variants`; items 5 and 7 inject bot messages in SimClient (the legacy
+bot never sends them). Also characterized: a reaction moves the client cursor to the **target** id (C `:1689`); the
+reactor's own echo is dropped (no duplicate, `FriendMessage.cs:282`); the bot answers a non-admin, non-author delete with
+nothing (ack only).
 
 1. Join handshake: `requestAdd2` → `acceptAddBot` (+avatar) → client `nick` + `getInfo` → `info` → `getChannels`/`getGroups`/`getUsers` → `channel`×N → `botGetMessages`×N.
 2. The replay honours the cursor; an unknown cursor ⇒ full replay. Assert the client stays responsive.

@@ -25,12 +25,28 @@ namespace Harness
 
         public int? Int(string name) =>
             Event is JsonElement e && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : null;
+
+        public long? Long(string name) =>
+            Event is JsonElement e && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt64() : null;
+
+        /// <summary>The value of a JSON boolean field; null when the field is missing or not a boolean.</summary>
+        public bool? Bool(string name) =>
+            Event is JsonElement e && e.TryGetProperty(name, out var v) && (v.ValueKind == JsonValueKind.True || v.ValueKind == JsonValueKind.False) ? v.GetBoolean() : null;
+
+        /// <summary>The field is missing or JSON null.</summary>
+        public bool IsNull(string name) =>
+            !(Event is JsonElement e && e.TryGetProperty(name, out var v) && v.ValueKind != JsonValueKind.Null);
+
+        /// <summary>A hex field equals <paramref name="hex"/>, ignoring case (ids come from different encoders).</summary>
+        public bool HexIs(string name, string? hex) =>
+            hex != null && string.Equals(Str(name), hex, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
     /// A child process with redirected stdio. Every output line is kept; waits are "until a matching line or
     /// timeout" (W2, no sleeps). A process exit becomes a synthetic "exited" event (W12), so a test can wait
-    /// for it or fail fast on it.
+    /// for it or fail fast on it. An exit without the process's own `bye` and with a non-zero code that the harness
+    /// did not cause is followed by a synthetic "crashed" event (W12, see <see cref="AddExit"/>).
     /// </summary>
     internal sealed class ManagedProcess : IAsyncDisposable
     {
@@ -39,6 +55,9 @@ namespace Harness
         private readonly object sync = new object();
         private TaskCompletionSource changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         private int streamsOpen = 2;
+
+        /// <summary>Windows STATUS_STACK_OVERFLOW (0xC00000FD) as a .NET exit code.</summary>
+        private const int StackOverflowExitCode = unchecked((int)0xC00000FD);
 
         public string Name { get; }
         public bool HasExited => process.HasExited;
@@ -72,8 +91,7 @@ namespace Harness
             {
                 int code = -1;
                 try { code = process.ExitCode; } catch (Exception) { }
-                string json = $"{{\"ev\":\"exited\",\"code\":{code}}}";
-                Add(new OutputLine { At = DateTime.UtcNow, Stream = "harness", Text = json, Event = JsonDocument.Parse(json).RootElement.Clone() });
+                AddExit(code);
             };
             process.Start();
             Task.Run(() => TailLoop(tailStop.Token));
@@ -158,8 +176,7 @@ namespace Harness
                 {
                     process.WaitForExit(5000);
                     int code = process.HasExited ? process.ExitCode : -1;
-                    Add(new OutputLine { At = DateTime.UtcNow, Stream = "harness", Text = $"{{\"ev\":\"exited\",\"code\":{code}}}",
-                        Event = JsonDocument.Parse($"{{\"ev\":\"exited\",\"code\":{code}}}").RootElement.Clone() });
+                    AddExit(code);
                 }
                 return;
             }
@@ -187,6 +204,48 @@ namespace Harness
             return index;
         }
 
+        /// <summary>
+        /// W12: records the exit as an "exited" event. When the process ended without printing its own `bye`, with a
+        /// non-zero code, and not because the harness stopped it (dispose), a synthetic "crashed" event follows:
+        /// {code, stackOverflow, source:"exit"}. stackOverflow = the Windows STATUS_STACK_OVERFLOW code, or the
+        /// runtime's "Stack overflow" line on stderr (redirect mode: stderr is read line by line, OnLine, and both
+        /// streams are closed before this runs). A stack overflow or Environment.FailFast cannot be caught, so the
+        /// process cannot report it itself. Both lines are added under one lock: no waiter sees `exited` without
+        /// its `crashed`.
+        /// </summary>
+        private void AddExit(int code)
+        {
+            string exitedJson = $"{{\"ev\":\"exited\",\"code\":{code}}}";
+            var add = new List<OutputLine>
+            {
+                new OutputLine { At = DateTime.UtcNow, Stream = "harness", Text = exitedJson, Event = JsonDocument.Parse(exitedJson).RootElement.Clone() },
+            };
+            bool sawBye;
+            bool stackOverflowText;
+            lock (sync)
+            {
+                sawBye = lines.Any(l => l.Ev == "bye");
+                stackOverflowText = lines.Any(l => l.Stream == "stderr" && l.Text.Contains("Stack overflow", StringComparison.Ordinal));
+            }
+            if (!sawBye && code != 0 && Volatile.Read(ref disposed) == 0)
+            {
+                bool stackOverflow = code == StackOverflowExitCode || stackOverflowText;
+                string crashedJson = JsonSerializer.Serialize(new Dictionary<string, object>
+                {
+                    ["ev"] = "crashed", ["code"] = code, ["stackOverflow"] = stackOverflow, ["source"] = "exit",
+                });
+                add.Add(new OutputLine { At = DateTime.UtcNow, Stream = "harness", Text = crashedJson, Event = JsonDocument.Parse(crashedJson).RootElement.Clone() });
+            }
+            TaskCompletionSource old;
+            lock (sync)
+            {
+                lines.AddRange(add);
+                old = changed;
+                changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+            old.TrySetResult();
+        }
+
         public List<OutputLine> Snapshot()
         {
             lock (sync)
@@ -200,7 +259,10 @@ namespace Harness
 
         /// <summary>
         /// Waits until a line at or after <paramref name="from"/> matches. Throws HarnessTimeoutException with `what`.
-        /// An exit, fatal or crash anywhere in the log ends the wait (the process cannot go on).
+        /// A <paramref name="failIf"/> line (at or after from) before the first match ends the wait. An exit, fatal or
+        /// crash anywhere in the log ends the wait when no line matches (the process cannot go on). A line that
+        /// matches wins over an exit: it was written, and a wait FOR the synthetic `crashed` (which follows `exited`,
+        /// W12) must succeed.
         /// </summary>
         public async Task<OutputLine> WaitFor(Func<OutputLine, bool> match, TimeSpan timeout, string what, bool failOnExit = true, Func<OutputLine, bool>? failIf = null, int from = 0)
         {
@@ -210,24 +272,42 @@ namespace Harness
                 Task next;
                 lock (sync)
                 {
-                    for (int i = 0; i < lines.Count; i++)
+                    int hit = -1;
+                    for (int i = Math.Max(0, from); i < lines.Count; i++)
                     {
-                        OutputLine l = lines[i];
-                        if (i >= from && match(l))
+                        if (match(lines[i]))
                         {
-                            return l;
+                            hit = i;
+                            break;
                         }
-                        if (failOnExit && l.Ev == "exited")
+                    }
+                    if (failIf != null)
+                    {
+                        int end = hit >= 0 ? hit : lines.Count;
+                        for (int i = Math.Max(0, from); i < end; i++)
                         {
-                            throw new HarnessTimeoutException($"{Name}: process exited while waiting for {what}");
+                            if (failIf(lines[i]))
+                            {
+                                throw new HarnessTimeoutException($"{Name}: '{lines[i].Ev}' while waiting for {what}: {lines[i].Text}");
+                            }
                         }
-                        if (i >= from && failIf != null && failIf(l))
+                    }
+                    if (hit >= 0)
+                    {
+                        return lines[hit];
+                    }
+                    if (failOnExit)
+                    {
+                        foreach (OutputLine l in lines)
                         {
-                            throw new HarnessTimeoutException($"{Name}: '{l.Ev}' while waiting for {what}: {l.Text}");
-                        }
-                        if (failOnExit && IsFatal(l))
-                        {
-                            throw new HarnessTimeoutException($"{Name}: '{l.Ev}' while waiting for {what}: {l.Text}");
+                            if (l.Ev == "exited")
+                            {
+                                throw new HarnessTimeoutException($"{Name}: process exited while waiting for {what}");
+                            }
+                            if (IsFatal(l))
+                            {
+                                throw new HarnessTimeoutException($"{Name}: '{l.Ev}' while waiting for {what}: {l.Text}");
+                            }
                         }
                     }
                     next = changed.Task;
@@ -275,6 +355,32 @@ namespace Harness
             lock (sync)
             {
                 return lines.Skip(from).ToList();
+            }
+        }
+
+        /// <summary>Position of <paramref name="line"/> (a line of this log, by reference) in the event log, or -1.</summary>
+        public int IndexOf(OutputLine line)
+        {
+            lock (sync)
+            {
+                return lines.IndexOf(line);
+            }
+        }
+
+        /// <summary>
+        /// Lines at or after <paramref name="from"/> and before <paramref name="end"/> (a line of this log), in arrival
+        /// order. With end = a sync event (e.g. `injected`), this is everything the step caused.
+        /// </summary>
+        public List<OutputLine> Between(int from, OutputLine end)
+        {
+            lock (sync)
+            {
+                int stop = lines.IndexOf(end);
+                if (stop < 0)
+                {
+                    throw new InvalidOperationException("Between: the end line is not in this log");
+                }
+                return lines.Skip(from).Take(Math.Max(0, stop - from)).ToList();
             }
         }
 

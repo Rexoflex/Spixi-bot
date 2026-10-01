@@ -2,12 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using IXICore;
 using IXICore.Meta;
 using IXICore.Network;
+using IXICore.SpixiBot;
 using IXICore.Storage;
 using IXICore.Streaming;
 using SimClient.Glue;
@@ -23,9 +25,14 @@ namespace SimClient
     ///                                     {"cmd":"post","channel":1,"text":"hello"}
     ///                                     {"cmd":"refresh"}
     ///                                     {"cmd":"set-cursor","channel":1,"id":"&lt;hex&gt;"}
+    ///                                     {"cmd":"react","channel":1,"id":"&lt;hex&gt;","reaction":"like:"}
+    ///                                     {"cmd":"delete","channel":1,"id":"&lt;hex&gt;"}
+    ///                                     {"cmd":"leave"}
+    ///                                     {"cmd":"inject","kind":"chat|unknown-code|unknown-action|info-k|info-legacy",...}
     ///                                     {"cmd":"quit"}
     /// stdout (one JSON object per line): ready, fatal, connected, hello_rejected, hello_attempts, join_sent,
     ///                                     accepted, info, channel, user, bot_action, posted, ack, received,
+    ///                                     reaction, deleted, rejected, reacted, delete_sent, leave_sent, injected,
     ///                                     refresh_sent, cursor_set, dropped, other, sent, expired, stream_error,
     ///                                     error, crashed, bye.
     /// Every member is a fresh testnet wallet in a fresh data folder (no wallet pool: session 3 decision).
@@ -35,6 +42,7 @@ namespace SimClient
         private static readonly Dictionary<string, Friend> bots = new Dictionary<string, Friend>();
         private static readonly object botsLock = new object();
         private static Timer? repinTimer;
+        private static SimNode? simNode;
         private static string stage = "args";
 
         private static int Main(string[] args)
@@ -101,6 +109,7 @@ namespace SimClient
 
             stage = "handler";
             var node = new SimNode();
+            simNode = node;
             IxianHandler.init("simclient-0.1", node, NetworkType.test, false);   // R :118 (testnet here)
 
             stage = "wallet";
@@ -174,6 +183,18 @@ namespace SimClient
                             break;
                         case "set-cursor":
                             SetCursor(root.GetProperty("channel").GetInt32(), root.GetProperty("id").GetString() ?? "");
+                            break;
+                        case "react":
+                            React(root.GetProperty("channel").GetInt32(), root.GetProperty("id").GetString() ?? "", root.GetProperty("reaction").GetString() ?? "");
+                            break;
+                        case "delete":
+                            Delete(root.GetProperty("channel").GetInt32(), root.GetProperty("id").GetString() ?? "");
+                            break;
+                        case "leave":
+                            Leave();
+                            break;
+                        case "inject":
+                            Inject(root);
                             break;
                         case "quit":
                             return;
@@ -312,6 +333,190 @@ namespace SimClient
                 throw new InvalidOperationException("cursor not set: the bot friend has no botInfo yet");
             }
             Events.Emit("cursor_set", new Dictionary<string, object?> { ["channel"] = channel, ["id"] = Crypto.hashToString(id) });
+        }
+
+        /// <summary>B1a react/delete scenario: react to a stored message (AppRules.React, U/R "like" handler).</summary>
+        private static void React(int channel, string hexId, string reaction)
+        {
+            Friend bot = SingleBot();
+            byte[] id = Convert.FromHexString(hexId);
+            bool added = AppRules.React(bot, id, reaction, channel);
+            Events.Emit("reacted", new Dictionary<string, object?> { ["id"] = Crypto.hashToString(id), ["channel"] = channel, ["localAdded"] = added });
+        }
+
+        /// <summary>B1a react/delete scenario: ask the bot to delete a message (AppRules.Delete, U/R "deleteMessage").</summary>
+        private static void Delete(int channel, string hexId)
+        {
+            Friend bot = SingleBot();
+            byte[] id = Convert.FromHexString(hexId);
+            AppRules.Delete(bot, id, channel);
+            Events.Emit("delete_sent", new Dictionary<string, object?> { ["id"] = Crypto.hashToString(id), ["channel"] = channel });
+        }
+
+        /// <summary>
+        /// B1a leave scenario (AppRules.Leave). Store: the friend stays with pendingDeletion, so it stays pinned.
+        /// Redesign: the friend is removed at once, so SimClient also stops re-pinning it (it is gone from `bots`).
+        /// </summary>
+        private static void Leave()
+        {
+            Friend bot = SingleBot();
+            bool removed = AppRules.Leave(bot, out bool sent);
+            if (AppRules.Mode == AppMode.Redesign)
+            {
+                lock (botsLock)
+                {
+                    foreach (string key in new List<string>(bots.Keys))
+                    {
+                        if (bots[key] == bot)
+                        {
+                            bots.Remove(key);
+                        }
+                    }
+                }
+            }
+            Events.Emit("leave_sent", new Dictionary<string, object?>
+            {
+                ["app"] = AppRules.Mode.ToString().ToLowerInvariant(),
+                ["removed"] = removed,
+                ["sent"] = sent,
+            });
+        }
+
+        /// <summary>
+        /// B1a info/unknown scenarios: deliver a message "from the bot" that the bot under test cannot be made to
+        /// send. The StreamMessage is built like the bot's sendBotAction (bot Network/StreamProcessor.cs:498-512:
+        /// type info, sender = bot, recipient = member, encryption none, unsigned, data = SpixiMessage bytes) and
+        /// enters through SimNode.parseProtocolMessage(s2data, bytes, endpoint) with the bot's real connection,
+        /// the same entry a wire message uses. Divergence (README): no TCP crossing. Runs synchronously on the
+        /// command thread, so every event Core and SimStreamProcessor emit synchronously inside receiveData is
+        /// printed before `injected`. The bot's answers to requests Core sends during that call (getGroups,
+        /// getUsers, getChannels after an accepted info, C :2676-2707) arrive later on the network thread and may
+        /// be printed after `injected`.
+        /// </summary>
+        private static void Inject(JsonElement root)
+        {
+            string kind = root.GetProperty("kind").GetString() ?? "";
+            Friend? bot = null;
+            lock (botsLock)
+            {
+                if (bots.Count == 1)
+                {
+                    bot = new List<Friend>(bots.Values)[0];
+                }
+            }
+            if (bot == null)
+            {
+                InjectError("inject needs exactly one joined bot");
+                return;
+            }
+            BotInfo? stored = bot.metaData.botInfo;
+            if (stored == null)
+            {
+                InjectError("the bot friend has no botInfo yet");
+                return;
+            }
+            RemoteEndpoint? endpoint = SimNode.GetBotEndpoint(bot.walletAddress);
+            if (endpoint == null || simNode == null)
+            {
+                InjectError("no connection to the bot (no helloData seen)");
+                return;
+            }
+
+            SpixiMessage sm;
+            switch (kind)
+            {
+                case "chat":
+                    sm = new SpixiMessage(SpixiMessageCode.chat, Encoding.UTF8.GetBytes(root.GetProperty("text").GetString() ?? ""), root.GetProperty("channel").GetInt32());
+                    break;
+
+                case "unknown-code":
+                    sm = new SpixiMessage((SpixiMessageCode)root.GetProperty("code").GetInt32(), new byte[] { 1, 2, 3 }, root.GetProperty("channel").GetInt32());
+                    break;
+
+                case "unknown-action":
+                    sm = new SpixiMessage(SpixiMessageCode.botAction,
+                        new SpixiBotAction((SpixiBotActionCode)root.GetProperty("action").GetInt32(), new byte[] { 1 }).getBytes(), 0);
+                    break;
+
+                case "info-k":
+                    {
+                        // Core k layout (BotInfo.cs:33 ctor, :79-100 getBytes): adds randomId + hideParticipantAddresses.
+                        byte[]? randomId = null;
+                        if (root.TryGetProperty("randomId", out JsonElement rid) && rid.ValueKind == JsonValueKind.String
+                            && !string.IsNullOrEmpty(rid.GetString()))
+                        {
+                            randomId = Convert.FromHexString(rid.GetString()!);
+                        }
+                        BotInfo bi = new BotInfo(stored.version, randomId, root.GetProperty("hide").GetBoolean(),
+                            stored.serverDescription, stored.cost, stored.settingsGeneratedTime + 1, stored.admin,
+                            stored.defaultGroup, stored.defaultChannel, stored.sendNotification, stored.userCount);
+                        bi.serverName = root.GetProperty("serverName").GetString() ?? "";
+                        byte[] info = WithTrailing(bi.getBytes(), root.GetProperty("trailing").GetInt32());
+                        sm = new SpixiMessage(SpixiMessageCode.botAction, new SpixiBotAction(SpixiBotActionCode.info, info).getBytes(), 0);
+                    }
+                    break;
+
+                case "info-legacy":
+                    {
+                        // The bot's Core f6fb55b layout (Streaming/Bot/BotInfo.cs:72-91, writes :78-87): no randomId.
+                        byte[] info;
+                        using (MemoryStream m = new MemoryStream())
+                        {
+                            using (BinaryWriter writer = new BinaryWriter(m))
+                            {
+                                writer.Write(stored.version);
+                                writer.Write(root.GetProperty("serverName").GetString() ?? "");
+                                writer.Write(stored.serverDescription ?? "");
+                                writer.Write(stored.cost.ToString());
+                                writer.Write(stored.settingsGeneratedTime + 1);
+                                writer.Write(stored.admin);
+                                writer.Write(stored.defaultGroup);
+                                writer.Write(stored.defaultChannel);
+                                writer.Write(stored.sendNotification);
+                                writer.Write(stored.userCount);
+                            }
+                            info = m.ToArray();
+                        }
+                        info = WithTrailing(info, root.GetProperty("trailing").GetInt32());
+                        sm = new SpixiMessage(SpixiMessageCode.botAction, new SpixiBotAction(SpixiBotActionCode.info, info).getBytes(), 0);
+                    }
+                    break;
+
+                default:
+                    InjectError("unknown inject kind " + kind);
+                    return;
+            }
+
+            StreamMessage msg = new StreamMessage();
+            msg.type = StreamMessageCode.info;
+            msg.sender = bot.walletAddress;
+            msg.recipient = IxianHandler.getWalletStorage().getPrimaryAddress();
+            msg.data = sm.getBytes();
+            msg.encryptionType = StreamMessageEncryptionCode.none;
+
+            simNode.parseProtocolMessage(ProtocolMessageCode.s2data, msg.getBytes(), endpoint);
+            Events.Emit("injected", new Dictionary<string, object?> { ["kind"] = kind, ["id"] = Crypto.hashToString(msg.id) });
+        }
+
+        private static void InjectError(string error)
+        {
+            Events.Emit("error", new Dictionary<string, object?> { ["where"] = "inject", ["error"] = error });
+        }
+
+        /// <summary>Appends `trailing` bytes of 0xAB (as a varint length, 0xAB makes ReadIxiBytes read past the end).</summary>
+        private static byte[] WithTrailing(byte[] bytes, int trailing)
+        {
+            if (trailing < 0)
+            {
+                throw new ArgumentException("trailing must be >= 0");
+            }
+            byte[] result = new byte[bytes.Length + trailing];
+            Buffer.BlockCopy(bytes, 0, result, 0, bytes.Length);
+            for (int i = bytes.Length; i < result.Length; i++)
+            {
+                result[i] = 0xAB;
+            }
+            return result;
         }
 
         private static void Repin()

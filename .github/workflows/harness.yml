@@ -1,4 +1,4 @@
-# Harness CI (session 3 spike, session 4 B1a characterization; D-031 / harness.md W1, W8, W11; D-044 guard).
+# Harness CI (session 3 spike, session 4-5 B1a characterization; D-031 / harness.md W1, W8, W11, W12; D-044 guard).
 # legacy: builds the OLD bot (a5a3442 code) with .NET 8 against Core f6fb55b and runs a start smoke on
 # Linux and Windows, so the platform for characterization is chosen from evidence (session 3, "measure first").
 # Core is pinned by full SHA here; submodules wait for B1b (D-030).
@@ -73,10 +73,11 @@ jobs:
           path: smoke-out
           if-no-files-found: warn
 
-  # B1a characterization (research D §8 items 1-3) with the legacy bot and SimClients (store + redesign rules, both
-  # on Core k: W3). `normal` runs every scenario. Every other variant is a self-test (L5, L18): it breaks ONE thing
-  # on purpose, runs only the scenario that must catch it, and passes only if every case of that scenario failed
-  # with the expected per-case marker.
+  # B1a characterization (research D §8 items 1-7) with the legacy bot and SimClients (store + redesign rules, both
+  # on Core k: W3). `normal` runs every scenario (14 cases; each starts its own bot, with up to 60 s for the D-044
+  # header wait). Every other variant is a self-test (L5, L18): it breaks ONE thing on purpose (the bot via
+  # break-bot.ps1, or for `unknown` the client Core via break-core.ps1), runs only the scenario that must catch it,
+  # and passes only if every case of that scenario failed with the expected per-case marker.
   harness:
     name: harness ${{ matrix.variant }} (${{ matrix.os }})
     strategy:
@@ -85,7 +86,7 @@ jobs:
         # Windows only (session 3, CI run 36841419911, D-043): on Linux the old bot hangs its API on the first
         # settings save (Settings.cs:109/:144 recursion).
         os: [ windows-latest ]
-        variant: [ normal, relay, ack, info, cursor, seed-none ]
+        variant: [ normal, relay, ack, info, cursor, seed-none, reaction, delete, delete-sign, admin, servername, unknown, leave ]
         include:
           - variant: normal
             seed: testnet
@@ -111,8 +112,37 @@ jobs:
             seed: none
             filter: 'scenario=join'
             markers: 'INFRA-TESTNET-UNREACHABLE[join:store] INFRA-TESTNET-UNREACHABLE[join:redesign]'
+          - variant: reaction     # break-bot.ps1 reaction: the bot stores a reaction but does not relay it
+            seed: testnet
+            filter: 'scenario=react-delete'
+            markers: 'REACTION-MISSING[react-delete:store->redesign] REACTION-MISSING[react-delete:redesign->store]'
+          - variant: delete       # break-bot.ps1 delete: the bot removes the message but does not relay its delete
+            seed: testnet
+            filter: 'scenario=react-delete'
+            markers: 'DELETE-MISSING[react-delete:store->redesign] DELETE-MISSING[react-delete:redesign->store]'
+          - variant: delete-sign  # break-bot.ps1 delete-sign: the bot relays its delete unsigned
+            seed: testnet
+            filter: 'scenario=react-delete'
+            markers: 'DELETE-UNVERIFIED[react-delete:store->redesign] DELETE-UNVERIFIED[react-delete:redesign->store]'
+          - variant: admin        # break-bot.ps1 admin: isAdmin always false (info still says admin)
+            seed: testnet
+            filter: 'scenario=react-delete'
+            markers: 'ADMIN-DELETE-NOT-RELAYED[react-delete:store->redesign] ADMIN-DELETE-NOT-RELAYED[react-delete:redesign->store]'
+          - variant: servername   # break-bot.ps1 servername: sendInfo sends an empty serverName
+            seed: testnet
+            filter: 'scenario=info'
+            markers: 'INFO-SERVERNAME-MISSING[info:store] INFO-SERVERNAME-MISSING[info:redesign]'
+          - variant: unknown      # break-core.ps1 unknown: the CLIENT Core FailFasts on an undefined code or action
+            seed: testnet
+            filter: 'scenario=unknown'
+            markers: 'CLIENT-CRASHED-ON-UNKNOWN[unknown:store] CLIENT-CRASHED-ON-UNKNOWN[unknown:redesign]'
+          - variant: leave        # break-bot.ps1 leave: the bot acks a leave but ignores it
+            seed: testnet
+            filter: 'scenario=leave'
+            markers: 'LEAVE-IGNORED[leave:store] LEAVE-IGNORED[leave:redesign]'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    # normal: 14 cases × (bot start + header wait ≤ 60 s + scenario); the self-tests run 2 cases each.
+    timeout-minutes: 60
     env:
       CORE_CLIENT_SHA: 097341acba9be1855383acf8215d779ca96efa02   # xcore-0.9.8k, the redesign's Core (W3)
     steps:
@@ -143,9 +173,15 @@ jobs:
             10.0.x
 
       - name: Deliberate break (self-test only)
-        if: contains(fromJSON('["relay","ack","info","cursor"]'), matrix.variant)
+        if: contains(fromJSON('["relay","ack","info","cursor","reaction","delete","delete-sign","admin","servername","leave"]'), matrix.variant)
         shell: pwsh
         run: ./Spixi-Bot/tests/smoke/break-bot.ps1 -Break ${{ matrix.variant }} -BotRoot Spixi-Bot/SpixiBot
+
+      # The `unknown` self-test breaks the CLIENT side: SimClient compiles Core k in, so this must run before its build.
+      - name: Deliberate client Core break (self-test only)
+        if: matrix.variant == 'unknown'
+        shell: pwsh
+        run: ./Spixi-Bot/tests/smoke/break-core.ps1 -Break unknown -CoreRoot Ixian-Core-k
 
       - name: Build bot (.NET 8, Core f6fb55b)
         shell: pwsh
@@ -161,7 +197,7 @@ jobs:
 
       - name: Run scenarios
         id: run
-        timeout-minutes: 25
+        timeout-minutes: 45
         shell: pwsh
         env:
           HARNESS_BOT_DIR: ${{ github.workspace }}/Spixi-Bot/SpixiBot/bin/Release/net8.0
