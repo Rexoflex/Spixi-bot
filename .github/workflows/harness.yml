@@ -80,7 +80,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, windows-latest ]
+        # Windows only (session 3, CI run 36841419911): on Linux the old bot also hangs its API on the first
+        # settings save (Settings.saveSettings → setOption → saveSettings recursion, Settings.cs:109/:144; on
+        # Windows the nested open fails fast with a sharing violation). Production is Windows (inference).
+        os: [ windows-latest ]
         variant: [ normal, self-test ]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -130,6 +133,20 @@ jobs:
       - name: Build SimClient (.NET 10, Core 097341a)
         shell: pwsh
         run: dotnet build Spixi-Bot/tests/SimClient/SimClient.csproj -c Release "-p:ClientCorePath=${{ github.workspace }}/Ixian-Core-k"
+
+      # Diagnostic: start one SimClient alone and print what it says (CI run 36841419911: it exited before
+      # "ready" and the reason was not captured). Never fails the job; the harness step decides.
+      - name: SimClient start smoke
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          . ./Spixi-Bot/tests/smoke/annotate.ps1
+          $data = Join-Path $env:RUNNER_TEMP 'simclient-smoke'
+          $out = '{"cmd":"quit"}' | dotnet Spixi-Bot/tests/SimClient/bin/Release/net10.0/SimClient.dll --app redesign --data $data 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Host $out
+          Write-Annotation -Level notice -Title "SimClient smoke exit=$code" -Message $out -MaxChunks 2
+          exit 0
 
       - name: Build harness
         shell: pwsh

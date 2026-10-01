@@ -66,11 +66,13 @@ namespace Harness
             return "dotnet";
         }
 
-        public static async Task<BotProcess> StartAsync(string runDir)
+        /// <summary>Starts the bot and registers its process in <paramref name="report"/> before any wait.</summary>
+        public static async Task<BotProcess> StartAsync(string runDir, List<ManagedProcess> report)
         {
             string work = Path.Combine(runDir, "bot");
             CopyDir(HarnessConfig.BotDir, work);
             var bot = new BotProcess(work);
+            report.Add(bot.Process);
 
             // "Public Node Address: <base58>" is logged after the wallet loads (Node.cs:218). It reaches stdout
             // (verbose console during start-up) and ixian.log, so it works in both launch modes.

@@ -38,14 +38,15 @@ namespace Harness
             SimMember? poster = null, receiver = null;
             try
             {
-                bot = await BotProcess.StartAsync(runDir);
-                processes.Add(bot.Process);
+                bot = await BotProcess.StartAsync(runDir, processes);
                 await bot.SeedDefaultsAsync();
 
-                poster = await SimMember.StartAsync(runDir, "poster", posterApp);
+                poster = SimMember.Start(runDir, "poster", posterApp);
                 processes.Add(poster.Process);
-                receiver = await SimMember.StartAsync(runDir, "receiver", receiverApp);
+                receiver = SimMember.Start(runDir, "receiver", receiverApp);
                 processes.Add(receiver.Process);
+                await poster.WaitReadyAsync();
+                await receiver.WaitReadyAsync();
 
                 int channel = await receiver.JoinAsync(bot, "general");
                 int posterChannel = await poster.JoinAsync(bot, "general");

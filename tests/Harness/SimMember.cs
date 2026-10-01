@@ -19,14 +19,19 @@ namespace Harness
                 Path.GetDirectoryName(HarnessConfig.SimClientDll)!);
         }
 
-        public static async Task<SimMember> StartAsync(string runDir, string name, string app)
+        /// <summary>Starts the process. Call <see cref="WaitReadyAsync"/> next; the caller registers the process
+        /// for the failure report first, so a start-up crash is in the report (CI run 36841419911).</summary>
+        public static SimMember Start(string runDir, string name, string app)
         {
             string data = Path.Combine(runDir, name);
             Directory.CreateDirectory(data);
-            var m = new SimMember(name, app, data);
-            OutputLine ready = await m.Process.WaitForEvent("ready", HarnessConfig.StartTimeout).ConfigureAwait(false);
-            m.Address = ready.Str("address") ?? throw new InvalidOperationException("ready without address");
-            return m;
+            return new SimMember(name, app, data);
+        }
+
+        public async Task WaitReadyAsync()
+        {
+            OutputLine ready = await Process.WaitForEvent("ready", HarnessConfig.StartTimeout).ConfigureAwait(false);
+            Address = ready.Str("address") ?? throw new InvalidOperationException("ready without address");
         }
 
         /// <summary>Join and wait until the bot's channel list arrives (the app needs the channel locally to store
