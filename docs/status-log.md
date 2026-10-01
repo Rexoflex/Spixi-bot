@@ -24,3 +24,15 @@ One entry per session, newest last. `CLAUDE.md` §6 only points at the latest ha
   `docs/design/b0-check.md`; roadmap rev 4, threat model, test strategy synced.
 - Review: round 1 NOT CLEAN (3 MAJOR: admin-page XSS in the check, API open to local callers without a login, harness
   join path) → fixed; round 2 CLEAN (0 MAJOR). No code changed.
+
+## Session 3 — 2026-10-01 — harness spike proves itself in CI
+
+- Reverse interview (3 rounds): measure startup first, permanent self-test job, no wallet pool, Core pinned by SHA,
+  both app modes as two cross cases, stop-and-report if F4/W9 fail, ≤ 8 CI pushes, CI read in the browser.
+- PR #1 on the fork (`spike/harness` → `rework/bot`), 8 pushes: legacy build (Linux + Windows), start smoke,
+  `tests/SimClient` (Core k, .NET 10, store|redesign), `tests/Harness` (xUnit v3), `Join_Post_Receive`.
+- Findings: the old bot cannot run on Linux (registry; settings-save recursion hangs the API) → harness on Windows
+  (D-043); F4 refuted — the bot needs a block header, interim source = testnet seeds (D-044); W9, W10 verified.
+- Green: Join_Post_Receive passes in both cross cases; the self-test removes the relay and both cases fail with
+  `W8-RELAY-MISSING[case]`. D-031 locked (A, 39/50). Review: round 1 NOT CLEAN (3 MAJOR) → fixed; round 2 CLEAN.
+- No bot code changed (CI-only patches exist for Linux start and the W8 break).

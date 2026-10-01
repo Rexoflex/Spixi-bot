@@ -22,3 +22,7 @@ Source numbers are Spixi DECISIONS rows unless marked `D-`.
 | L15 | Ask "is this worth doing at all?" before specifying a fix for a system that is being retired; it cut B0 from ~3–4 days to a 10-minute check. | session 2, D-041 |
 | L16 | An operator procedure is inside the threat model: the first "safe" check sent the operator into the stored-XSS admin page. | session 2 review R1-M1 |
 | L17 | From the session VM run git with `--no-optional-locks`; an index.lock the VM cannot delete blocks GitHub Desktop. | session 2 |
+| L18 | A failure marker must prove its cause: attach it only after the steps before it are proven (here: the bot acked this post, the receiver stayed healthy), and require it per case. Otherwise a self-test passes for the wrong reason. | session 3 review R1 M1/M2 |
+| L19 | "Measure first" paid off: two cheap smoke runs turned two hypotheses (registry, Console.Clear) into facts and ruled Linux out for the legacy bot before any harness code depended on it. | session 3, D-043 |
+| L20 | Copy the app's retry behaviour into a simulator before reading a timeout as a protocol fact: one early "not ready" looked like F4 refuted; the real evidence came after retrying like the app. | session 3, D-044 |
+| L21 | When logs need a login, publish failure details as CI annotations (public API) and redact secrets first; it removed the paste-the-log loop. | session 3 |

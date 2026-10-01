@@ -70,5 +70,6 @@ win (skills, templates, lessons). Session prompts use `docs/templates/session-pr
 
 ## 6 · Where we are now
 
-Session 2 (2026-10-01): B0 is an operator check (no code), BE asks ready, harness design graded. **Next session:
-read `docs/handoff-2026-10-01-s2.md` first.**
+Session 3 (2026-10-01): harness spike green in CI (PR #1 on the fork), D-031 locked, F4 refuted (D-044), legacy
+harness on Windows (D-043). **Next session: read `docs/handoff-2026-10-01-s3.md` first, then paste
+`docs/prompts/session-4.md`.**
