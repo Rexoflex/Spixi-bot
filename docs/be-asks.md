@@ -39,9 +39,9 @@ assumption (e.g. store Core = k, harness W3) and marks it as a hypothesis.
 | # | Ask | Why | Blocks | Source | Status |
 |---|---|---|---|---|---|
 | BE-04 | Which Ixian-Core commit is in **store Spixi 0.9.22**? (Our guess: xcore-0.9.8j, `95fc725`.) Is there a build record? | The harness builds a store-mode client with that Core (harness W3) | B1a store fidelity | D §9 Q1 | ⬜ |
-| BE-05 | Is there an unpushed Spixi-Bot branch already on Core ≥ 2026-05 (the `BotInfo` ctor change)? | Avoids duplicate porting work in B1b | B1b | C §8 Q2 | ⬜ |
-| BE-06 | Core pin rule: which **release tag** do both apps build against, and will you tag releases we can pin? | D-030 pins merges to that tag | B1b | D-030 | ⬜ |
-| BE-07 | Can a bot serve clients with **no reachable DLT seed** (testnet, isolated)? Anything that waits on TIV/sync first? | The test harness runs the bot isolated (harness F4) | B1a spike | harness.md | ⬜ |
+| BE-05 | Is there an unpushed Spixi-Bot branch already on Core ≥ 2026-05 (the `BotInfo` ctor change)? | Avoids duplicate porting work in B1b | B1b | C §8 Q2 | ⬜ deferred (D-042); B1b ports itself (`docs/design/b1b-port.md`) |
+| BE-06 | Core pin rule: which **release tag** do both apps build against, and will you tag releases we can pin? | D-030 pins merges to that tag | B1b | D-030 | ⬜ deferred (D-042); assumption: tag v0.9.8k `1ff5435` (D-051) |
+| BE-07 | Can a bot serve clients with **no reachable DLT seed** (testnet, isolated)? Anything that waits on TIV/sync first? | The test harness runs the bot isolated (harness F4) | B1a spike | harness.md | answered by our spike: no (F4 refuted, D-044); revisit for the ported bot with D-044 |
 
 ## 2 · Before D2 (delivery semantics) → B3
 

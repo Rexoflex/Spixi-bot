@@ -16,7 +16,7 @@ checked 2026-10-01). Gates are enforced in CI (`docs/process.md` §G2).
 |---|---|---|---|
 | Unit | Domain rules, permission levels, limits, storage records | xUnit v3 | `Ban_BlocksNextPost`, `Moderator_CannotKickAdmin` |
 | Property | Invariants over random sequences | CsCheck | "a banned address never appears in fan-out", "history is gap-free and ordered", "an optional history import preserves every id (only if D4 adds it)" |
-| Snapshot | Exact wire bytes of every message the bot sends (from the bot's own Core) | Verify | `BotInfo`, `channel`, `user`, history batch; **reader tests** parse them with the Core versions the apps ship |
+| Snapshot | *Session 6 (D-050):* no golden files. B1b PR A compares the shapes of every bot message (SimClient `wire` event) between the legacy and the ported bot; readers are covered by SimClient `inject` (D-047) | `wire-diff.ps1` | `BotInfo`, every bot-made SpixiMessage; see `docs/design/b1b-port.md` §4 |
 | Contract | Store + redesign client behaviour, using Core's own client code in the setup D1 chooses | xUnit + harness | join, post, history, react, delete, leave (per D-025), nick twice, leave + re-join, 2-day bot outage |
 | Integration | Bot + N simulated clients over real sockets on localhost | harness (+ Testcontainers for multi-node) | reconnect gap, 10k-history join, ban mid-stream, restart |
 | Crash/durability | Kill the process during writes, reopen, verify | harness | "no acknowledged message is lost" |
@@ -48,7 +48,7 @@ production copy under access control for the optional history import (scrubbing 
 
 | Job | Runs | Blocks merge |
 |---|---|---|
-| legacy (until B1b) | .NET 8 + Core `f6fb55b`: build + start smoke on Linux and Windows; the B1a characterization suite runs in the `harness` job on **Windows** (D-043) against a bot that gets its block header from the testnet seeds (D-044, guard: no header in 60 s → `INFRA-TESTNET-UNREACHABLE`), with one self-test job per deliberate break (`relay`, `ack`, `info`, `cursor`, `seed-none`; D-045, L5, L18; session 5 adds `reaction`, `delete`, `delete-sign`, `admin`, `servername`, `leave` and the client-Core break `unknown`, D-047). Workflow: `.github/workflows/harness.yml` | yes for B1a |
+| legacy (until B1b) | .NET 8 + Core `f6fb55b`: build + start smoke on Linux and Windows; the B1a characterization suite runs in the `harness` job on **Windows** (D-043) against a bot that gets its block header from the testnet seeds (D-044, guard: no header in 60 s → `INFRA-TESTNET-UNREACHABLE`), with one self-test job per deliberate break (`relay`, `ack`, `info`, `cursor`, `seed-none`; D-045, L5, L18; session 5 adds `reaction`, `delete`, `delete-sign`, `admin`, `servername`, `leave` and the client-Core break `unknown`, D-047). Workflow: `.github/workflows/harness.yml`. *B1b (D-049, `docs/design/b1b-port.md` §6):* PR A moves the suite to the ported bot (Linux `normal` + 12 self-tests, Windows `normal`), keeps one legacy `normal` job for the wire diff and adds dependency review; PR B removes the legacy jobs and adds CodeQL and the nightly `core-head` job (Core pin in `core.pin`, D-051) | yes for B1a / B1b |
 | build | .NET 10 SDK, Core checked out at the pinned commit, warnings-as-errors for new code, deterministic build | yes |
 | test | unit, property, snapshot, contract, integration (short) | yes |
 | mutation | Stryker on changed core modules | report-only until the .NET 10 trial run passes (D-028), then blocking at threshold 60 |

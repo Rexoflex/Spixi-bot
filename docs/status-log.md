@@ -63,3 +63,18 @@ One entry per session, newest last. `CLAUDE.md` §6 only points at the latest ha
 - New facts: legacy-layout BotInfo + trailing bytes is dropped by Core k (D-048); reaction cursor = target id;
   own reaction echo dropped; every bot settings save stamps generatedTime, so an admin change replaces the client's
   botInfo. No bot code changed. D-047, D-048.
+
+## Session 6 · 2026-10-01 · B1b planned and graded, B1a closed
+
+- Source read (three parallel auditors): bot vs Core f6fb55b → v0.9.8k: 24 compile-break groups in 6 `.cs` files +
+  csproj, 21 behaviour changes (s2data bypasses NetworkQueue; Core-k byte additions to every bot SpixiMessage and to
+  BotInfo; send queue drops when full; TIV header store in RocksDB), Linux start blockers, admin UI broken by Core k
+  html.
+- Reverse interview (4 rounds + 1 after review): port + cleanup as two PRs, payment stub, serial queue, suite on the
+  ported bot (Linux + Windows), wire diff instead of W7, captures dropped, B1a closed, `core.pin`, nightly HEAD in
+  PR B, first test on testnet / Linux VPS / two desktop instances after PR B, in-session review only.
+- Plan `docs/design/b1b-port.md` rev 4; review: r1 13 MAJOR (three auditors), r2 3 MAJOR, r3 CLEAN (0 MAJOR).
+- Corrections found: pin = tag v0.9.8k `1ff5435` (not `097341a`); phones cannot run testnet (`ixian.cfg` relative to
+  the working directory); app Preferences shared across data folders; testnet ports 16235/8601.
+- D-049–D-052; D-030 amended. Lessons L29–L33. No bot code changed. ⚠ A stray `.git/objects/maintenance.lock` was left
+  in `../Ixian-Core` by a `git fetch --dry-run` (L29); Damir deletes it.

@@ -46,8 +46,8 @@ win (skills, templates, lessons). Session prompts use `docs/templates/session-pr
 
 | Path | What |
 |---|---|
-| `SpixiBot/` | The bot (legacy .NET 8 code, `a5a3442`) |
-| `../Ixian-Core/` | Shared Core, compiled in (`SpixiBot.sln`). Bot was built against Core `f6fb55b`; it does **not** compile against Core HEAD (see research B §0). |
+| `SpixiBot/` | The bot (legacy .NET 8 code, `a5a3442`; B1b ports it to .NET 10, `docs/design/b1b-port.md`) |
+| `../Ixian-Core/` | Shared Core, compiled in (`SpixiBot.sln`). Bot was built against Core `f6fb55b`; it does **not** compile against Core v0.9.8k/HEAD until B1b (port delta: `docs/design/b1b-port.md` §3). B1b pins Core in `core.pin` (D-051). |
 | `DECISIONS.md` | Decision log — read before changing anything |
 | `docs/process.md` | The workflow, gates and rubric |
 | `docs/templates/` | Session prompt, batch rubric, handoff, review brief, review verdict |
@@ -72,6 +72,10 @@ win (skills, templates, lessons). Session prompts use `docs/templates/session-pr
 
 ## 6 · Where we are now
 
-Session 5 (2026-10-01): B1a items 4–7 (reactions/deletes, info variants, unknown codes, leave) + W12 green in CI,
-14 cases, 11 self-tests (PR #3, D-047, D-048). B1a contract scenarios are complete. **Next session: read
-`docs/handoff-2026-10-01-s5.md` first, then paste `docs/prompts/session-6.md`.**
+Session 6 (2026-10-01): **B1a closed** (D-050). **B1b planned and graded**: `docs/design/b1b-port.md` rev 4, review
+CLEAN after 3 rounds (`docs/reviews/session-6-brief.md` §5). Two PRs: PR A port to .NET 10 + Core tag v0.9.8k
+(`1ff5435`, `core.pin`), serial s2data queue, payment stub, suite on the ported bot (Linux + Windows), wire diff vs
+legacy; PR B cleanup + nightly Core HEAD (D-049–D-052). First hands-on test: testnet, Linux VPS, two Windows desktop
+app instances, after PR B (D-052). No bot code changed yet. CI suite: 14 cases, 12 self-tests. Next free DECISIONS
+number: **D-053**.
+**NEXT SESSION: read `docs/handoff-2026-10-01-s6.md` FIRST, then paste `docs/prompts/session-7.md`.**
