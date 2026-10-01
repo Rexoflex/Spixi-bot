@@ -85,12 +85,10 @@ jobs:
         # Windows the nested open fails fast with a sharing violation). Production is Windows (inference).
         os: [ windows-latest ]
         variant: [ normal, self-test ]
-        seed: [ none ]
-        # Measurement (session 3, push 6): the same scenario with the real testnet seeds, so TIV can fetch headers.
-        include:
-          - os: windows-latest
-            variant: normal
-            seed: testnet
+        # testnet (session 3, CI run 36847424722): with no reachable seed the old bot answers every hello with
+        # "bye: not ready" (12 attempts in 30 s; F4 refuted). With the real testnet seeds TIV gets a header in
+        # about 1 s and Join_Post_Receive passes. Network dependency until session 4 freezes a header fixture.
+        seed: [ testnet ]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
