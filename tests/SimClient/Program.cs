@@ -69,12 +69,17 @@ namespace SimClient
                 // The stage names the start-up step that failed (CI run 36841419911: an exit before "ready").
                 Events.Emit("fatal", new Dictionary<string, object?> { ["stage"] = stage, ["error"] = e.ToString() });
                 Console.Error.WriteLine("SimClient fatal at stage " + stage + ": " + e);
+                Environment.Exit(2);
                 return 2;
             }
 
             CommandLoop();
             Events.Emit("bye");
             Logging.flush();
+            // Core starts foreground threads (network queue, pending messages, local storage, client manager) and
+            // has no single stop call for a client without the app's Node.stop(); returning from Main would leave
+            // the process running (CI run 36844824431 hung here). Exit explicitly.
+            Environment.Exit(0);
             return 0;
         }
 

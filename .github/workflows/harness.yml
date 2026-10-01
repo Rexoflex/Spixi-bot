@@ -137,6 +137,8 @@ jobs:
       # Diagnostic: start one SimClient alone and print what it says (CI run 36841419911: it exited before
       # "ready" and the reason was not captured). Never fails the job; the harness step decides.
       - name: SimClient start smoke
+        timeout-minutes: 3
+        continue-on-error: true
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
@@ -154,6 +156,7 @@ jobs:
 
       - name: Run Join_Post_Receive
         id: run
+        timeout-minutes: 12
         shell: pwsh
         env:
           HARNESS_BOT_DIR: ${{ github.workspace }}/Spixi-Bot/SpixiBot/bin/Release/net8.0
