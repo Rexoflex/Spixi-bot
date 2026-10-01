@@ -172,16 +172,19 @@ namespace Harness
             Add(new OutputLine { At = DateTime.UtcNow, Stream = stream, Text = text, Event = ev });
         }
 
-        private void Add(OutputLine l)
+        private int Add(OutputLine l)
         {
             TaskCompletionSource old;
+            int index;
             lock (sync)
             {
+                index = lines.Count;
                 lines.Add(l);
                 old = changed;
                 changed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             }
             old.TrySetResult();
+            return index;
         }
 
         public List<OutputLine> Snapshot()
@@ -195,9 +198,11 @@ namespace Harness
         /// <summary>Events that end a wait at once (review R1 n6): the process reported it cannot go on.</summary>
         private static bool IsFatal(OutputLine l) => l.Ev is "fatal" or "crashed";
 
-        /// <summary>Waits until a line (from index 0) matches. Throws HarnessTimeoutException with `what`.</summary>
-
-        public async Task<OutputLine> WaitFor(Func<OutputLine, bool> match, TimeSpan timeout, string what, bool failOnExit = true, Func<OutputLine, bool>? failIf = null)
+        /// <summary>
+        /// Waits until a line at or after <paramref name="from"/> matches. Throws HarnessTimeoutException with `what`.
+        /// An exit, fatal or crash anywhere in the log ends the wait (the process cannot go on).
+        /// </summary>
+        public async Task<OutputLine> WaitFor(Func<OutputLine, bool> match, TimeSpan timeout, string what, bool failOnExit = true, Func<OutputLine, bool>? failIf = null, int from = 0)
         {
             DateTime deadline = DateTime.UtcNow + timeout;
             while (true)
@@ -205,9 +210,10 @@ namespace Harness
                 Task next;
                 lock (sync)
                 {
-                    foreach (OutputLine l in lines)
+                    for (int i = 0; i < lines.Count; i++)
                     {
-                        if (match(l))
+                        OutputLine l = lines[i];
+                        if (i >= from && match(l))
                         {
                             return l;
                         }
@@ -215,7 +221,7 @@ namespace Harness
                         {
                             throw new HarnessTimeoutException($"{Name}: process exited while waiting for {what}");
                         }
-                        if (failIf != null && failIf(l))
+                        if (i >= from && failIf != null && failIf(l))
                         {
                             throw new HarnessTimeoutException($"{Name}: '{l.Ev}' while waiting for {what}: {l.Text}");
                         }
@@ -235,15 +241,41 @@ namespace Harness
             }
         }
 
-        public Task<OutputLine> WaitForEvent(string ev, TimeSpan timeout, Func<OutputLine, bool>? and = null) =>
-            WaitFor(l => l.Ev == ev && (and == null || and(l)), timeout, $"'{ev}' event");
+        public Task<OutputLine> WaitForEvent(string ev, TimeSpan timeout, Func<OutputLine, bool>? and = null, int from = 0) =>
+            WaitFor(l => l.Ev == ev && (and == null || and(l)), timeout, $"'{ev}' event", from: from);
 
-        public void Send(object command)
+        /// <summary>A harness note in the event log (for the report only; never an event).</summary>
+        public void Note(string text) => Add(new OutputLine { At = DateTime.UtcNow, Stream = "harness", Text = "# " + text });
+
+        /// <summary>
+        /// Sends one command line. Returns its position in the event log: every line the process writes because of
+        /// this command comes later (use it as `from` in <see cref="WaitFor"/> and <see cref="Since"/>).
+        /// </summary>
+        public int Send(object command)
         {
             string json = JsonSerializer.Serialize(command);
-            Add(new OutputLine { At = DateTime.UtcNow, Stream = "harness", Text = "> " + json });
+            int mark = Add(new OutputLine { At = DateTime.UtcNow, Stream = "harness", Text = "> " + json });
             process.StandardInput.WriteLine(json);
             process.StandardInput.Flush();
+            return mark;
+        }
+
+        /// <summary>The current end of the event log (a mark for "from now on").</summary>
+        public int Mark()
+        {
+            lock (sync)
+            {
+                return lines.Count;
+            }
+        }
+
+        /// <summary>Lines at or after <paramref name="from"/>, in arrival order.</summary>
+        public List<OutputLine> Since(int from)
+        {
+            lock (sync)
+            {
+                return lines.Skip(from).ToList();
+            }
         }
 
         public string Dump()
@@ -290,8 +322,14 @@ namespace Harness
         }
     }
 
-    internal sealed class HarnessTimeoutException : Exception
+    internal class HarnessTimeoutException : Exception
     {
         public HarnessTimeoutException(string message) : base(message) { }
+    }
+
+    /// <summary>D-044: the environment failed (testnet unreachable), not the bot. CI labels it INFRA.</summary>
+    internal sealed class HarnessInfraException : Exception
+    {
+        public HarnessInfraException(string message) : base(message) { }
     }
 }

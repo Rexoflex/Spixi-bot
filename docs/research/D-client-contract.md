@@ -207,6 +207,9 @@ Legend: **C→B** = client to bot, **B→C** = bot to client. "Relay" = the bot 
 
 ## 8. Contract-test checklist (derived)
 
+*Status (session 4, D-045):* items 1–3 characterized green in CI (`Join_Handshake`, `History_Cursor`,
+`Relay_Echo_Ack`, run 36856754230); items 4, 5, 7 next; item 6 after W12.
+
 1. Join handshake: `requestAdd2` → `acceptAddBot` (+avatar) → client `nick` + `getInfo` → `info` → `getChannels`/`getGroups`/`getUsers` → `channel`×N → `botGetMessages`×N.
 2. The replay honours the cursor; an unknown cursor ⇒ full replay. Assert the client stays responsive.
 3. Relay: author = original sender. An own echo is deduped. `msgReceived(id, channel)` goes back to the sender.

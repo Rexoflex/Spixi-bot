@@ -36,3 +36,15 @@ One entry per session, newest last. `CLAUDE.md` §6 only points at the latest ha
 - Green: Join_Post_Receive passes in both cross cases; the self-test removes the relay and both cases fail with
   `W8-RELAY-MISSING[case]`. D-031 locked (A, 39/50). Review: round 1 NOT CLEAN (3 MAJOR) → fixed; round 2 CLEAN.
 - No bot code changed (CI-only patches exist for Linux start and the W8 break).
+
+## Session 4 — 2026-10-01 — D-044 guard and B1a items 1–3
+
+- Reverse interview (2 rounds): guard = red INFRA job via the bot API; one CI job per deliberate break; scope = guard
+  + join, relay/echo/ack, history cursor; both apps per scenario; Join_Post_Receive grows into Relay_Echo_Ack;
+  ≤ 8 pushes (6 expected).
+- PR #2 (`b1a/characterization` → `rework/bot`): `ScenarioRun`, `Markers`, three scenario classes, SimClient
+  `refresh`/`set-cursor`, `break-bot.ps1`, self-test matrix (D-045).
+- CI run 36856754230 (push 1): all green — normal 6/6; each self-test failed every case with its own marker.
+- Review: pre-push r1 (1 MAJOR, 3 MINOR) fixed before push; r2 NOT CLEAN (INFRA label without proof that the API
+  works) → fixed with link proofs for every marker; r3 CLEAN.
+- Damir: no AI attribution in commits; fork history to be rewritten (D-046). No bot code changed.

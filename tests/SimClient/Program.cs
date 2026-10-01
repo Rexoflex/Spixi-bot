@@ -21,10 +21,13 @@ namespace SimClient
     ///
     /// stdin  (one JSON object per line): {"cmd":"join","host":"127.0.0.1:port","address":"&lt;bot&gt;"}
     ///                                     {"cmd":"post","channel":1,"text":"hello"}
+    ///                                     {"cmd":"refresh"}
+    ///                                     {"cmd":"set-cursor","channel":1,"id":"&lt;hex&gt;"}
     ///                                     {"cmd":"quit"}
     /// stdout (one JSON object per line): ready, fatal, connected, hello_rejected, hello_attempts, join_sent,
-    ///                                     accepted, info, channel, posted, ack, received, dropped, other, sent,
-    ///                                     expired, stream_error, error, crashed, bye.
+    ///                                     accepted, info, channel, user, bot_action, posted, ack, received,
+    ///                                     refresh_sent, cursor_set, dropped, other, sent, expired, stream_error,
+    ///                                     error, crashed, bye.
     /// Every member is a fresh testnet wallet in a fresh data folder (no wallet pool: session 3 decision).
     /// </summary>
     internal static class Program
@@ -166,6 +169,12 @@ namespace SimClient
                         case "post":
                             Post(root.GetProperty("channel").GetInt32(), root.GetProperty("text").GetString() ?? "");
                             break;
+                        case "refresh":
+                            Refresh();
+                            break;
+                        case "set-cursor":
+                            SetCursor(root.GetProperty("channel").GetInt32(), root.GetProperty("id").GetString() ?? "");
+                            break;
                         case "quit":
                             return;
                         default:
@@ -242,15 +251,7 @@ namespace SimClient
 
         private static void Post(int channel, string text)
         {
-            Friend bot;
-            lock (botsLock)
-            {
-                if (bots.Count != 1)
-                {
-                    throw new InvalidOperationException("post needs exactly one joined bot, have " + bots.Count);
-                }
-                bot = new List<Friend>(bots.Values)[0];
-            }
+            Friend bot = SingleBot();
             FriendMessage? fm = AppRules.Post(bot, channel, text);
             Events.Emit("posted", new Dictionary<string, object?>
             {
@@ -258,6 +259,59 @@ namespace SimClient
                 ["channel"] = channel,
                 ["text"] = text,
             });
+        }
+
+        private static Friend SingleBot()
+        {
+            lock (botsLock)
+            {
+                if (bots.Count != 1)
+                {
+                    throw new InvalidOperationException("this command needs exactly one joined bot, have " + bots.Count);
+                }
+                return new List<Friend>(bots.Values)[0];
+            }
+        }
+
+        /// <summary>
+        /// B1a history scenario: replay the app's new-connection cascade on the open connection. Both apps send
+        /// getInfo on every new connection to a bot (U/R NetworkProtocol.cs:109-112, SimNode.cs copies it); the
+        /// bot answers info, Core asks getChannels, and every `channel` makes Core send botGetMessages with the
+        /// stored cursor (C CoreStreamProcessor.cs:2660-2673). Divergence (marked in the README): no TCP
+        /// reconnect, so the bot's per-connection state is not reset; the bot keeps none for botGetMessages
+        /// (Messages.cs:196-220 reads only the cursor).
+        /// </summary>
+        private static void Refresh()
+        {
+            Friend bot = SingleBot();
+            // Report the stored cursors at refresh time (Core reads the same dictionary when the `channel` arrives,
+            // C :2664-2671), so a test can prove which cursor the bot received (review R2 item 4).
+            var cursors = new Dictionary<string, object?>();
+            lock (bot.metaData.lastReceivedMessageIds)
+            {
+                foreach (var kv in bot.metaData.lastReceivedMessageIds)
+                {
+                    cursors[kv.Key.ToString()] = kv.Value == null ? null : Crypto.hashToString(kv.Value);
+                }
+            }
+            CoreStreamProcessor.sendGetBotInfo(bot);
+            Events.Emit("refresh_sent", new Dictionary<string, object?> { ["cursors"] = cursors });
+        }
+
+        /// <summary>
+        /// B1a history scenario: overwrite the stored cursor for a channel (Core FriendMetaData
+        /// setLastReceivedMessageIds, Friend.cs:132-142). An id the bot does not know models the cases in
+        /// research D §4 (own unrelayed message, pruned beyond 10 000, bot DB reset).
+        /// </summary>
+        private static void SetCursor(int channel, string hexId)
+        {
+            Friend bot = SingleBot();
+            byte[] id = Convert.FromHexString(hexId);
+            if (!bot.metaData.setLastReceivedMessageIds(id, channel))
+            {
+                throw new InvalidOperationException("cursor not set: the bot friend has no botInfo yet");
+            }
+            Events.Emit("cursor_set", new Dictionary<string, object?> { ["channel"] = channel, ["id"] = Crypto.hashToString(id) });
         }
 
         private static void Repin()

@@ -26,3 +26,6 @@ Source numbers are Spixi DECISIONS rows unless marked `D-`.
 | L19 | "Measure first" paid off: two cheap smoke runs turned two hypotheses (registry, Console.Clear) into facts and ruled Linux out for the legacy bot before any harness code depended on it. | session 3, D-043 |
 | L20 | Copy the app's retry behaviour into a simulator before reading a timeout as a protocol fact: one early "not ready" looked like F4 refuted; the real evidence came after retrying like the app. | session 3, D-044 |
 | L21 | When logs need a login, publish failure details as CI annotations (public API) and redact secrets first; it removed the paste-the-log loop. | session 3 |
+| L22 | Run an adversarial review against the real Core source BEFORE the first push: it found a wait that could never match (a MAJOR) and saved a CI round trip. | session 4 r1 |
+| L23 | A failure marker needs proof that the link is up, not only that the process is healthy: an acked probe or the member's own echo is cheap proof (and an infra label needs proof that the API itself works). | session 4 r2 |
+| L24 | Trace the client's real message cascade before asserting order: the app talks to the bot (getInfo) before the bot knows it, so facts come from an earlier cascade than expected. | session 4 r1 |

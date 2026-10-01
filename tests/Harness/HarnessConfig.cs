@@ -26,7 +26,7 @@ namespace Harness
 
         /// <summary>
         /// HARNESS_BOT_SEED: "testnet" (default) = no -n, the bot uses Core's built-in testnet seeds so TIV gets a
-        /// block header (~1 s, CI run 36847424722). "none" = -n 127.0.0.1:1, no DLT: the bot then answers every
+        /// block header (1.1-4.1 s, CI runs 36847424722 … 36856754230). "none" = -n 127.0.0.1:1, no DLT: the bot then answers every
         /// hello with "bye: not ready" (F4 refuted), so it is kept only to reproduce that finding.
         /// </summary>
         public static string BotSeed => Environment.GetEnvironmentVariable("HARNESS_BOT_SEED") ?? "testnet";
@@ -38,6 +38,12 @@ namespace Harness
         public static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(120);
         public static readonly TimeSpan JoinTimeout = TimeSpan.FromSeconds(45);
         public static readonly TimeSpan DeliveryTimeout = TimeSpan.FromSeconds(20);
+
+        /// <summary>
+        /// D-044 guard: how long the bot may take to load a block header from the testnet seeds. Measured 1.1-4.1 s in
+        /// CI (runs 36847424722 … 36856754230); 60 s leaves room for a slow seed without hiding an outage.
+        /// </summary>
+        public static readonly TimeSpan HeaderTimeout = TimeSpan.FromSeconds(60);
 
         private static string Required(string name, string? mustContain)
         {

@@ -7,6 +7,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
@@ -21,7 +22,7 @@ namespace Harness
     /// -i 127.0.0.1, --disableWebStart, and --walletPassword (testnet only, Node.cs:120-126) so the bot makes
     /// its own wallet. The API login comes from ixian.cfg (addApiUser; no ':' in the password, Config.cs:207).
     /// </summary>
-    internal sealed class BotProcess : IAsyncDisposable
+    internal sealed class BotProcess
     {
         public ManagedProcess Process { get; }
         public string WorkDir { get; }
@@ -71,7 +72,11 @@ namespace Harness
             return "dotnet";
         }
 
-        /// <summary>Starts the bot and registers its process in <paramref name="report"/> before any wait.</summary>
+        /// <summary>
+        /// Starts the bot and registers its process in <paramref name="report"/> before any wait. Returns when the
+        /// stream port is open. Call <see cref="WaitForHeaderAsync"/> next (ScenarioRun does): the bot serves
+        /// clients only once it holds a block header (D-044).
+        /// </summary>
         public static async Task<BotProcess> StartAsync(string runDir, List<ManagedProcess> report)
         {
             string work = Path.Combine(runDir, "bot");
@@ -98,6 +103,63 @@ namespace Harness
                 await Task.Delay(250).ConfigureAwait(false);
             }
             return bot;
+        }
+
+        /// <summary>
+        /// D-044 infra guard. The old bot answers every client hello with "bye: not ready" until its TIV holds a
+        /// block header (Core f6fb55b CoreNetworkProtocol.cs:509-514); the header comes from the public testnet
+        /// seeds. The API method `blockheight` returns the TIV header height (GenericAPIServer.cs:1422-1429 →
+        /// SpixiBot Node.cs:423-430, 0 while there is no header). If it stays 0 for
+        /// <see cref="HarnessConfig.HeaderTimeout"/>, the cause is the network, not the bot: fail with
+        /// <see cref="Markers.TestnetUnreachable"/>[case] before any member starts. The self-test variant
+        /// `seed-none` proves this (L5): no seed → every case must fail with this marker.
+        /// </summary>
+        public async Task WaitForHeaderAsync(string caseLabel)
+        {
+            DateTime start = DateTime.UtcNow;
+            DateTime deadline = start + HarnessConfig.HeaderTimeout;
+            string last = "";
+            bool sawZero = false;   // the API answered with a valid height 0: the bot runs, only the header is missing
+            while (true)
+            {
+                if (Process.HasExited)
+                {
+                    throw new HarnessTimeoutException("bot exited while waiting for a block header");
+                }
+                try
+                {
+                    string body = await Api("blockheight").ConfigureAwait(false);
+                    using JsonDocument doc = JsonDocument.Parse(body);
+                    if (doc.RootElement.TryGetProperty("result", out JsonElement r) && r.ValueKind == JsonValueKind.Number)
+                    {
+                        if (r.GetUInt64() > 0)
+                        {
+                            Process.Note($"block header {r.GetUInt64()} after {(DateTime.UtcNow - start).TotalSeconds:0.0} s (D-044)");
+                            return;
+                        }
+                        sawZero = true;
+                    }
+                    last = body;
+                }
+                catch (Exception e) when (e is HttpRequestException or InvalidOperationException or JsonException or TaskCanceledException)
+                {
+                    // The API may not answer yet during start-up; keep probing until the deadline.
+                    last = e.GetType().Name + ": " + e.Message;
+                }
+                if (DateTime.UtcNow > deadline)
+                {
+                    // L18 (review R2 item 1): the infra label needs proof that the bot itself works. Only a bot whose
+                    // API answered "height 0" is missing just the header; an API that never answered is a harness or
+                    // bot failure (bad auth, lost port), not the testnet.
+                    if (!sawZero)
+                    {
+                        throw new HarnessTimeoutException($"bot API never answered blockheight within {HarnessConfig.HeaderTimeout.TotalSeconds:0} s; not an infra failure. Last answer: {last}");
+                    }
+                    throw new HarnessInfraException($"{Markers.Tag(Markers.TestnetUnreachable, caseLabel)}: the bot API works but the bot has no block header after " +
+                        $"{HarnessConfig.HeaderTimeout.TotalSeconds:0} s (seed={HarnessConfig.BotSeed}); infra failure, rerun the job. Last API answer: {last}");
+                }
+                await Task.Delay(500).ConfigureAwait(false);
+            }
         }
 
         /// <summary>GET http://localhost:api/method?k=v (Core GenericAPIServer.cs:139-190 reads the query string).</summary>
@@ -148,12 +210,6 @@ namespace Harness
                 }
             }
             return sb.ToString();
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            DisposeHttp();
-            await Process.DisposeAsync().ConfigureAwait(false);
         }
 
         public void DisposeHttp() => http.Dispose();
