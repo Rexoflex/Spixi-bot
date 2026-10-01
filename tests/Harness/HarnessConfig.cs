@@ -21,6 +21,13 @@ namespace Harness
         /// instead of stdout. The unpatched bot calls Console.Clear() first (Program.cs:142), which throws
         /// IOException on a redirected stdout on Windows (CI run 36840465376).
         /// </summary>
+        /// <summary>
+        /// HARNESS_BOT_SEED: "none" (default) = -n 127.0.0.1:1, an unreachable seed, no DLT (F4);
+        /// "testnet" = no -n, the bot uses Core's built-in testnet seeds so TIV can fetch real block headers
+        /// (session 3 measurement after CI run 36846606694).
+        /// </summary>
+        public static string BotSeed => Environment.GetEnvironmentVariable("HARNESS_BOT_SEED") ?? "none";
+
         public static bool BotOwnConsole => Environment.GetEnvironmentVariable("HARNESS_BOT_CONSOLE") == "1";
 
         /// <summary>

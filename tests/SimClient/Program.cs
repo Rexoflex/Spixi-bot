@@ -211,13 +211,24 @@ namespace SimClient
             SimNode.BotHelloCompleted += onHello;
             try
             {
-                await StreamClientManager.connectTo(host, bot).ConfigureAwait(false);
-                Task done = await Task.WhenAny(hello.Task, Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(false);
-                if (done != hello.Task)
+                // The app retries the bot connection every 2.5 s (connectToBotNodes, R Meta/Node.cs:465-484 from the
+                // loop at :614; U Meta/Node.cs:293-311). The bot answers "bye: not ready" until its TIV has a block
+                // header (Core f6fb55b CoreNetworkProtocol.cs:509-514); CI run 36846606694 connected once, 1.6 s
+                // after bot start, got that bye and never retried. So: retry like the app until hello or 30 s.
+                DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+                int attempts = 0;
+                while (!hello.Task.IsCompleted && DateTime.UtcNow < deadline)
                 {
-                    Events.Emit("error", new Dictionary<string, object?> { ["where"] = "join", ["error"] = "no hello from the bot within 30 s" });
+                    attempts++;
+                    await StreamClientManager.connectTo(host, bot).ConfigureAwait(false);
+                    await Task.WhenAny(hello.Task, Task.Delay(TimeSpan.FromMilliseconds(2500))).ConfigureAwait(false);
+                }
+                if (!hello.Task.IsCompleted)
+                {
+                    Events.Emit("error", new Dictionary<string, object?> { ["where"] = "join", ["error"] = "no hello from the bot within 30 s", ["attempts"] = attempts });
                     return;
                 }
+                Events.Emit("hello_attempts", new Dictionary<string, object?> { ["attempts"] = attempts });
             }
             finally
             {
