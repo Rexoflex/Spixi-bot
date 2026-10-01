@@ -7,6 +7,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
@@ -71,7 +72,11 @@ namespace Harness
             return "dotnet";
         }
 
-        /// <summary>Starts the bot and registers its process in <paramref name="report"/> before any wait.</summary>
+        /// <summary>
+        /// Starts the bot and registers its process in <paramref name="report"/> before any wait. Returns when the
+        /// stream port is open. Call <see cref="WaitForHeaderAsync"/> next (ScenarioRun does): the bot serves
+        /// clients only once it holds a block header (D-044).
+        /// </summary>
         public static async Task<BotProcess> StartAsync(string runDir, List<ManagedProcess> report)
         {
             string work = Path.Combine(runDir, "bot");
@@ -98,6 +103,51 @@ namespace Harness
                 await Task.Delay(250).ConfigureAwait(false);
             }
             return bot;
+        }
+
+        /// <summary>
+        /// D-044 infra guard. The old bot answers every client hello with "bye: not ready" until its TIV holds a
+        /// block header (Core f6fb55b CoreNetworkProtocol.cs:509-514); the header comes from the public testnet
+        /// seeds. The API method `blockheight` returns the TIV header height (GenericAPIServer.cs:1422-1429 →
+        /// SpixiBot Node.cs:423-430, 0 while there is no header). If it stays 0 for
+        /// <see cref="HarnessConfig.HeaderTimeout"/>, the cause is the network, not the bot: fail with
+        /// <see cref="Markers.TestnetUnreachable"/>[case] before any member starts. The self-test variant
+        /// `seed-none` proves this (L5): no seed → every case must fail with this marker.
+        /// </summary>
+        public async Task WaitForHeaderAsync(string caseLabel)
+        {
+            DateTime start = DateTime.UtcNow;
+            DateTime deadline = start + HarnessConfig.HeaderTimeout;
+            string last = "";
+            while (true)
+            {
+                if (Process.HasExited)
+                {
+                    throw new HarnessTimeoutException("bot exited while waiting for a block header");
+                }
+                try
+                {
+                    string body = await Api("blockheight").ConfigureAwait(false);
+                    using JsonDocument doc = JsonDocument.Parse(body);
+                    if (doc.RootElement.TryGetProperty("result", out JsonElement r) && r.ValueKind == JsonValueKind.Number && r.GetUInt64() > 0)
+                    {
+                        Process.Note($"block header {r.GetUInt64()} after {(DateTime.UtcNow - start).TotalSeconds:0.0} s (D-044)");
+                        return;
+                    }
+                    last = body;
+                }
+                catch (Exception e) when (e is HttpRequestException or InvalidOperationException or JsonException or TaskCanceledException)
+                {
+                    // The API may not answer yet during start-up; keep probing until the deadline.
+                    last = e.GetType().Name + ": " + e.Message;
+                }
+                if (DateTime.UtcNow > deadline)
+                {
+                    throw new HarnessInfraException($"{Markers.TestnetUnreachable}[{caseLabel}]: the bot has no block header after " +
+                        $"{HarnessConfig.HeaderTimeout.TotalSeconds:0} s (seed={HarnessConfig.BotSeed}); infra failure, rerun the job. Last API answer: {last}");
+                }
+                await Task.Delay(500).ConfigureAwait(false);
+            }
         }
 
         /// <summary>GET http://localhost:api/method?k=v (Core GenericAPIServer.cs:139-190 reads the query string).</summary>

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Harness
@@ -38,7 +39,7 @@ namespace Harness
         /// chat, Core Friend.cs:899-907). Returns the index of the named channel.</summary>
         public async Task<int> JoinAsync(BotProcess bot, string channelName)
         {
-            Process.Send(new { cmd = "join", host = bot.Host, address = bot.Address });
+            SendJoin(bot);
             // A join "error" (e.g. no hello within 30 s) ends the wait at once with its reason (review R1 n6).
             await Process.WaitFor(l => l.Ev == "connected", HarnessConfig.JoinTimeout, "'connected' event",
                 failIf: l => l.Ev == "error" && l.Str("where") == "join").ConfigureAwait(false);
@@ -47,7 +48,33 @@ namespace Harness
             return ch.Int("index") ?? throw new InvalidOperationException("channel event without index");
         }
 
-        public void Post(int channel, string text) => Process.Send(new { cmd = "post", channel, text });
+        /// <summary>Sends the join command only; the join handshake scenario waits for each step itself.</summary>
+        public int SendJoin(BotProcess bot) => Process.Send(new { cmd = "join", host = bot.Host, address = bot.Address });
+
+        public int Post(int channel, string text) => Process.Send(new { cmd = "post", channel, text });
+
+        /// <summary>Replays the app's new-connection cascade (getInfo → … → botGetMessages with the stored cursor).</summary>
+        public int Refresh() => Process.Send(new { cmd = "refresh" });
+
+        public int SetCursor(int channel, string hexId) => Process.Send(new { cmd = "set-cursor", channel, id = hexId });
+
+        /// <summary>
+        /// Posts and waits for the bot's ack of THIS message id. Returns the id. The ack proves the bot processed
+        /// the post (StreamProcessor.cs:75-77 runs before onChat), and because the bot handles one client's
+        /// s2data in arrival order (one high-priority queue thread, Core f6fb55b NetworkQueue.cs:258-297, :319),
+        /// it also proves every earlier request from this member was processed first.
+        /// </summary>
+        public async Task<string> PostAndWaitAckAsync(int channel, string text)
+        {
+            int mark = Post(channel, text);
+            OutputLine posted = await Process.WaitForEvent("posted", HarnessConfig.DeliveryTimeout, l => l.Str("text") == text, mark).ConfigureAwait(false);
+            string id = posted.Str("id") ?? throw new InvalidOperationException("posted event without a message id");
+            await Process.WaitForEvent("ack", HarnessConfig.DeliveryTimeout, l => l.Str("id") == id, mark).ConfigureAwait(false);
+            return id;
+        }
+
+        /// <summary>No sign that the process cannot go on (exit, crash, fatal, a dropped message or an error).</summary>
+        public bool Healthy() => !Process.Snapshot().Any(l => l.Ev is "exited" or "crashed" or "fatal" or "dropped" or "error");
 
         public ValueTask DisposeAsync()
         {

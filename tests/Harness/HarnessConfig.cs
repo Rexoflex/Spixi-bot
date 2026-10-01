@@ -39,6 +39,12 @@ namespace Harness
         public static readonly TimeSpan JoinTimeout = TimeSpan.FromSeconds(45);
         public static readonly TimeSpan DeliveryTimeout = TimeSpan.FromSeconds(20);
 
+        /// <summary>
+        /// D-044 guard: how long the bot may take to load a block header from the testnet seeds. Measured ~1 s in
+        /// CI (runs 36847424722, 36848444730, 36850085277); 60 s leaves room for a slow seed without hiding an outage.
+        /// </summary>
+        public static readonly TimeSpan HeaderTimeout = TimeSpan.FromSeconds(60);
+
         private static string Required(string name, string? mustContain)
         {
             string? v = Environment.GetEnvironmentVariable(name);

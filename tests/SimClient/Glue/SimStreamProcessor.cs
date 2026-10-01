@@ -69,6 +69,17 @@ namespace SimClient.Glue
                         {
                             Events.Emit("info", new Dictionary<string, object?> { ["defaultChannel"] = friend?.metaData?.botInfo?.defaultChannel });
                         }
+                        else if (sba.action == SpixiBotActionCode.user)
+                        {
+                            // Core onBotAction stored it in the roster (C :2710-2719). B1a join handshake: the bot
+                            // answers getUsers with one `user` per normal member (bot StreamProcessor.cs sendUsers).
+                            BotContact bc = new BotContact(sba.data, false);
+                            Events.Emit("user", new Dictionary<string, object?> { ["address"] = bc.publicKey == null ? null : new Address(bc.publicKey).ToString() });
+                        }
+                        else
+                        {
+                            Events.Emit("bot_action", new Dictionary<string, object?> { ["action"] = sba.action.ToString() });
+                        }
                         break;
 
                     case SpixiMessageCode.chat:
@@ -80,7 +91,9 @@ namespace SimClient.Glue
                                 break;
                             }
                             // U :410-411, R :613-616: store the row (the app's Node.addMessageWithType → Core FriendList).
-                            FriendList.addMessageWithType(msg.id, FriendMessageType.standard, rdr.senderAddress, sm.channel, text, false, rdr.groupSenderAddress, msg.timestamp, fireLocalNotification, 0);
+                            // Returns null when the id is already stored (own echo, history replay of a known message):
+                            // Core FriendList.cs:258-266 dedups by id and sequence. `stored` reports it (research D §8 item 3).
+                            FriendMessage? stored = FriendList.addMessageWithType(msg.id, FriendMessageType.standard, rdr.senderAddress, sm.channel, text, false, rdr.groupSenderAddress, msg.timestamp, fireLocalNotification, 0);
                             Address? author = rdr.groupSenderAddress ?? rdr.senderAddress;
                             Events.Emit("received", new Dictionary<string, object?>
                             {
@@ -89,6 +102,7 @@ namespace SimClient.Glue
                                 ["from"] = author?.ToString(),
                                 ["self"] = author != null && IxianHandler.getWalletStorage().isMyAddress(author),
                                 ["text"] = text,
+                                ["stored"] = stored != null,
                             });
                         }
                         break;
