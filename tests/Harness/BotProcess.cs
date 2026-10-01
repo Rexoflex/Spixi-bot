@@ -41,11 +41,29 @@ namespace Harness
             File.WriteAllText(Path.Combine(workDir, "ixian.cfg"), $"addApiUser = {apiUser}:{apiPassword}\n");
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic",
                 Convert.ToBase64String(Encoding.ASCII.GetBytes($"{apiUser}:{apiPassword}")));
-            Process = new ManagedProcess("bot", "dotnet", new[]
+            string[] args =
             {
                 "SpixiBot.dll", "-t", "-n", "127.0.0.1:1", "-p", BotPort.ToString(), "-a", ApiPort.ToString(),
                 "-i", "127.0.0.1", "--disableWebStart", "--walletPassword", "harness-bot-wallet-pw",
-            }, workDir);
+            };
+            Process = HarnessConfig.BotOwnConsole
+                ? ManagedProcess.StartWithOwnConsole("bot", DotnetHost(), args, workDir, Path.Combine(workDir, "ixian.log"))
+                : new ManagedProcess("bot", "dotnet", args, workDir);
+        }
+
+        /// <summary>Shell-execute does not search PATH the same way; use the SDK that setup-dotnet installed.</summary>
+        private static string DotnetHost()
+        {
+            string? root = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+            if (!string.IsNullOrEmpty(root))
+            {
+                string exe = Path.Combine(root, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+                if (File.Exists(exe))
+                {
+                    return exe;
+                }
+            }
+            return "dotnet";
         }
 
         public static async Task<BotProcess> StartAsync(string runDir)
@@ -54,14 +72,12 @@ namespace Harness
             CopyDir(HarnessConfig.BotDir, work);
             var bot = new BotProcess(work);
 
-            // The wallet address is printed on the line after "Your IXIAN addresses are:" (Node.cs:187-193),
-            // with console colour codes around it.
-            OutputLine header = await bot.Process.WaitFor(l => l.Text.Contains("Your IXIAN addresses are:"),
-                HarnessConfig.StartTimeout, "wallet address header").ConfigureAwait(false);
-            OutputLine addrLine = await bot.Process.WaitFor(l => l.At >= header.At && l.Stream == "stdout"
-                    && Regex.IsMatch(StripAnsi(l.Text).Trim(), "^[1-9A-HJ-NP-Za-km-z]{40,}$"),
-                HarnessConfig.StartTimeout, "wallet address").ConfigureAwait(false);
-            bot.Address = StripAnsi(addrLine.Text).Trim();
+            // "Public Node Address: <base58>" is logged after the wallet loads (Node.cs:218). It reaches stdout
+            // (verbose console during start-up) and ixian.log, so it works in both launch modes.
+            var addrRe = new Regex("Public Node Address: ([1-9A-HJ-NP-Za-km-z]{40,})");
+            OutputLine addrLine = await bot.Process.WaitFor(l => addrRe.IsMatch(StripAnsi(l.Text)),
+                HarnessConfig.StartTimeout, "'Public Node Address' line").ConfigureAwait(false);
+            bot.Address = addrRe.Match(StripAnsi(addrLine.Text)).Groups[1].Value;
 
             // Ready = the stream port accepts TCP. Poll by event-free probe: each probe is a real connect attempt,
             // bounded by the same start timeout (no fixed sleeps on the success path).
