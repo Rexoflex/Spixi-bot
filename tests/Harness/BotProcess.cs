@@ -22,7 +22,7 @@ namespace Harness
     /// -i 127.0.0.1, --disableWebStart, and --walletPassword (testnet only, Node.cs:120-126) so the bot makes
     /// its own wallet. The API login comes from ixian.cfg (addApiUser; no ':' in the password, Config.cs:207).
     /// </summary>
-    internal sealed class BotProcess : IAsyncDisposable
+    internal sealed class BotProcess
     {
         public ManagedProcess Process { get; }
         public string WorkDir { get; }
@@ -119,6 +119,7 @@ namespace Harness
             DateTime start = DateTime.UtcNow;
             DateTime deadline = start + HarnessConfig.HeaderTimeout;
             string last = "";
+            bool sawZero = false;   // the API answered with a valid height 0: the bot runs, only the header is missing
             while (true)
             {
                 if (Process.HasExited)
@@ -129,10 +130,14 @@ namespace Harness
                 {
                     string body = await Api("blockheight").ConfigureAwait(false);
                     using JsonDocument doc = JsonDocument.Parse(body);
-                    if (doc.RootElement.TryGetProperty("result", out JsonElement r) && r.ValueKind == JsonValueKind.Number && r.GetUInt64() > 0)
+                    if (doc.RootElement.TryGetProperty("result", out JsonElement r) && r.ValueKind == JsonValueKind.Number)
                     {
-                        Process.Note($"block header {r.GetUInt64()} after {(DateTime.UtcNow - start).TotalSeconds:0.0} s (D-044)");
-                        return;
+                        if (r.GetUInt64() > 0)
+                        {
+                            Process.Note($"block header {r.GetUInt64()} after {(DateTime.UtcNow - start).TotalSeconds:0.0} s (D-044)");
+                            return;
+                        }
+                        sawZero = true;
                     }
                     last = body;
                 }
@@ -143,7 +148,14 @@ namespace Harness
                 }
                 if (DateTime.UtcNow > deadline)
                 {
-                    throw new HarnessInfraException($"{Markers.TestnetUnreachable}[{caseLabel}]: the bot has no block header after " +
+                    // L18 (review R2 item 1): the infra label needs proof that the bot itself works. Only a bot whose
+                    // API answered "height 0" is missing just the header; an API that never answered is a harness or
+                    // bot failure (bad auth, lost port), not the testnet.
+                    if (!sawZero)
+                    {
+                        throw new HarnessTimeoutException($"bot API never answered blockheight within {HarnessConfig.HeaderTimeout.TotalSeconds:0} s; not an infra failure. Last answer: {last}");
+                    }
+                    throw new HarnessInfraException($"{Markers.Tag(Markers.TestnetUnreachable, caseLabel)}: the bot API works but the bot has no block header after " +
                         $"{HarnessConfig.HeaderTimeout.TotalSeconds:0} s (seed={HarnessConfig.BotSeed}); infra failure, rerun the job. Last API answer: {last}");
                 }
                 await Task.Delay(500).ConfigureAwait(false);
@@ -198,12 +210,6 @@ namespace Harness
                 }
             }
             return sb.ToString();
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            DisposeHttp();
-            await Process.DisposeAsync().ConfigureAwait(false);
         }
 
         public void DisposeHttp() => http.Dispose();

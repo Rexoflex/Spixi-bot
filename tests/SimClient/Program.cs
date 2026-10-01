@@ -284,8 +284,18 @@ namespace SimClient
         private static void Refresh()
         {
             Friend bot = SingleBot();
+            // Report the stored cursors at refresh time (Core reads the same dictionary when the `channel` arrives,
+            // C :2664-2671), so a test can prove which cursor the bot received (review R2 item 4).
+            var cursors = new Dictionary<string, object?>();
+            lock (bot.metaData.lastReceivedMessageIds)
+            {
+                foreach (var kv in bot.metaData.lastReceivedMessageIds)
+                {
+                    cursors[kv.Key.ToString()] = kv.Value == null ? null : Crypto.hashToString(kv.Value);
+                }
+            }
             CoreStreamProcessor.sendGetBotInfo(bot);
-            Events.Emit("refresh_sent");
+            Events.Emit("refresh_sent", new Dictionary<string, object?> { ["cursors"] = cursors });
         }
 
         /// <summary>

@@ -33,6 +33,8 @@ Orientation for any AI or human working on this repo. **Keep this file to one sc
 9. **Language rule (Damir):** chat replies to Damir are written in ASD-STE100 Simplified Technical
    English (short sentences, active voice, one instruction per sentence). Docs, code comments and
    commit messages are exempt.
+10. **No AI attribution in commits or PRs (D-046):** no `Claude-Session:` link, no `Co-Authored-By: Claude`
+    line, no "Generated with" footer.
 
 ## 3 · How we work — FORGE for engineering
 
@@ -70,6 +72,6 @@ win (skills, templates, lessons). Session prompts use `docs/templates/session-pr
 
 ## 6 · Where we are now
 
-Session 3 (2026-10-01): harness spike green in CI (PR #1 on the fork), D-031 locked, F4 refuted (D-044), legacy
-harness on Windows (D-043). **Next session: read `docs/handoff-2026-10-01-s3.md` first, then paste
-`docs/prompts/session-4.md`.**
+Session 4 (2026-10-01): D-044 guard + B1a items 1–3 (join, relay/echo/ack, history cursor) green in CI with one
+self-test job per break (PR #2, D-045); review CLEAN. **Next session: read `docs/handoff-2026-10-01-s4.md` first,
+then paste `docs/prompts/session-5.md`.**

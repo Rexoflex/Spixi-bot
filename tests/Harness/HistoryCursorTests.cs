@@ -27,8 +27,8 @@ namespace Harness
     /// "refresh" replays the app's new-connection cascade on the open connection (SimClient README, divergence).
     ///
     /// Self-test `cursor` (L5, L18): the CI break makes the bot ignore the cursor (Messages.cs:208, always -1).
-    /// Both cases must fail at step C with CURSOR-IGNORED[history:app], thrown only after the refresh reached the
-    /// channel list and the sentinel was acked.
+    /// Both cases must fail at step C with CURSOR-IGNORED[history:app], thrown only after the reader proved it sent
+    /// cursor = m4 (refresh_sent.cursors), the refresh reached the channel list and the sentinel was acked.
     /// </summary>
     public sealed class HistoryCursorTests
     {
@@ -72,13 +72,16 @@ namespace Harness
             // B. Live message; the reader's cursor becomes its id.
             string m4 = $"m4 {tag}";
             int liveMark = r.Mark();
-            await poster.PostAndWaitAckAsync(channel, m4);
+            string m4Id = await poster.PostAndWaitAckAsync(channel, m4);
             await r.WaitForEvent("received", HarnessConfig.DeliveryTimeout, l => l.Str("text") == m4, liveMark);
             history.Add(m4);
 
             // C. Known cursor → nothing replayed. The bound is the refresh's own channel event: any late answer to
             // an earlier request (e.g. the join's second cascade) arrives before it (in-order processing, above).
-            int knownMark = await RefreshAsync(reader);
+            (int knownMark, string? knownCursor) = await RefreshAsync(reader, channel);
+            // L18 (review R2 item 4): prove the reader sent the cursor the fact is about. A null cursor would also
+            // give a full replay and look like the break.
+            Assert.Equal(m4Id, knownCursor);
             string s1 = $"s1 {tag}";
             int s1Mark = r.Mark();
             await reader.PostAndWaitAckAsync(channel, s1);
@@ -93,10 +96,12 @@ namespace Harness
             await r.WaitForEvent("received", HarnessConfig.DeliveryTimeout, l => l.Str("text") == s1, s1Mark);
 
             // D. Unknown cursor → the whole channel, in order.
-            int cursorMark = reader.SetCursor(channel, Guid.NewGuid().ToString("N"));
+            string unknownId = Guid.NewGuid().ToString("N");
+            int cursorMark = reader.SetCursor(channel, unknownId);
             await r.WaitFor(l => l.Ev == "cursor_set", HarnessConfig.DeliveryTimeout, "'cursor_set' event",
                 failIf: l => l.Ev == "error" && l.Str("where") == "command", from: cursorMark);
-            int unknownMark = await RefreshAsync(reader);
+            (int unknownMark, string? unknownCursor) = await RefreshAsync(reader, channel);
+            Assert.Equal(unknownId, unknownCursor);
             await r.WaitForEvent("received", HarnessConfig.DeliveryTimeout, l => l.Str("text") == s1, unknownMark);
             Assert.Equal(history, ReceivedTexts(r, unknownMark, history));
 
@@ -112,14 +117,22 @@ namespace Harness
 
         /// <summary>
         /// Refresh and wait until the bot's channel list arrived again (Core then sent botGetMessages). Returns the
-        /// position of that channel event: the replay that answers this refresh comes after it.
+        /// position of that channel event (the replay that answers this refresh comes after it) and the cursor the
+        /// reader held for <paramref name="channel"/> when it refreshed. Core reads the cursor again when the
+        /// `channel` arrives (C :2664-2671); no message reaches the reader in between in steps C and D.
         /// </summary>
-        private static async Task<int> RefreshAsync(SimMember reader)
+        private static async Task<(int Bound, string? Cursor)> RefreshAsync(SimMember reader, int channel)
         {
             int mark = reader.Refresh();
-            await reader.Process.WaitForEvent("refresh_sent", HarnessConfig.DeliveryTimeout, from: mark);
+            OutputLine sent = await reader.Process.WaitForEvent("refresh_sent", HarnessConfig.DeliveryTimeout, from: mark);
+            string? cursor = null;
+            if (sent.Event is System.Text.Json.JsonElement e && e.TryGetProperty("cursors", out var cs)
+                && cs.TryGetProperty(channel.ToString(), out var c) && c.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                cursor = c.GetString();
+            }
             OutputLine ch = await reader.Process.WaitForEvent("channel", HarnessConfig.DeliveryTimeout, l => l.Str("name") == "general", mark);
-            return reader.Process.Snapshot().IndexOf(ch);
+            return (reader.Process.Snapshot().IndexOf(ch), cursor);
         }
 
         /// <summary>Texts of `received` events after <paramref name="from"/> that belong to <paramref name="known"/>, in arrival order.</summary>
