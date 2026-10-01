@@ -284,7 +284,7 @@ zero warnings in bot code; admin page check (tabs + styles) with a screenshot in
    row in A9). Setup: default group (cost 0) + channel through the admin page (or `sb_*`, W11); `serverName` set. The
    bot address is the "Public Node Address" line in `ixian.log` (`Node.cs:218`); members add it by address (no deep
    link, D-042).
-5. **Apps:** Damir alone, **two redesign desktop instances on Windows** (D-052): each started from its exe folder (the
+5. **Apps:** Damir alone, **one redesign desktop instance on each of 2 Windows PCs + 1 macOS** (D-052 update; phones later): each started from its exe folder (the
    app reads `ixian.cfg` relative to the working directory, redesign `Meta/Config.cs:108,148,254`) with
    `networkType = testnet` and its own `dataFolderPath` (`Config.cs:229`; only headers/activity are per-network,
    `:258-277`). **Isolation:** the app also keeps the wallet password and other settings in MAUI `Preferences`
