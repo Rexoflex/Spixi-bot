@@ -39,7 +39,9 @@ namespace Harness
         public async Task<int> JoinAsync(BotProcess bot, string channelName)
         {
             Process.Send(new { cmd = "join", host = bot.Host, address = bot.Address });
-            await Process.WaitForEvent("connected", HarnessConfig.JoinTimeout).ConfigureAwait(false);
+            // A join "error" (e.g. no hello within 30 s) ends the wait at once with its reason (review R1 n6).
+            await Process.WaitFor(l => l.Ev == "connected", HarnessConfig.JoinTimeout, "'connected' event",
+                failIf: l => l.Ev == "error" && l.Str("where") == "join").ConfigureAwait(false);
             await Process.WaitForEvent("accepted", HarnessConfig.JoinTimeout).ConfigureAwait(false);
             OutputLine ch = await Process.WaitForEvent("channel", HarnessConfig.JoinTimeout, l => l.Str("name") == channelName).ConfigureAwait(false);
             return ch.Int("index") ?? throw new InvalidOperationException("channel event without index");

@@ -4,7 +4,8 @@
 
   Starts SpixiBot from a fresh copy of its output folder (the bot looks for its DLLs and writes Data/,
   activity/ and ixian.log relative to the working folder: Program.cs:33-41, Config.cs:95, Node.cs:235),
-  in testnet mode with an unreachable seed (F4 hypothesis: the bot serves clients with no DLT), free ports,
+  in testnet mode with an unreachable seed (a process-level start check only; F4 itself is refuted: the bot
+  answers hello with "bye: not ready" until it has a block header, CI run 36847424722), free ports,
   and an API login from a test config file (W11). Records:
     - whether the process survives (risks: checkVCRedist registry call on Linux, Program.cs:201-205;
       Console.Clear with redirected stdout, Program.cs:142; stats-screen thread, StatsConsoleScreen.cs:42-62)
@@ -24,6 +25,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'annotate.ps1')
+# The bot logs config lines verbatim, including the API login (Config.cs:185); redact before publishing (review R1 m7).
+function Redact([string]$t) { return ($t -replace "(addApiUser'?\s*=\s*'?)[^'\s]+", '$1<redacted>') }
 
 function Get-FreePort {
   $l = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
@@ -95,8 +98,11 @@ $alive = -not $proc.HasExited
 $exitCode = if ($proc.HasExited) { $proc.ExitCode } else { 'n/a (alive)' }
 if ($alive) { Stop-Process -Id $proc.Id -Force; $proc.WaitForExit(10000) | Out-Null }
 
-foreach ($f in @('ixian.log')) { $p = Join-Path $work $f; if (Test-Path $p) { Copy-Item $p $OutDir } }
-Get-ChildItem -Path $work -Filter 'ixian*.log' -ErrorAction SilentlyContinue | Copy-Item -Destination $OutDir
+# Logs go into the uploaded artifact redacted (review R2 r5).
+foreach ($f in @($stdout, $stderr)) { if (Test-Path $f) { Set-Content -Path $f -Value (Redact (Get-Content -Raw $f)) } }
+Get-ChildItem -Path $work -Filter 'ixian*.log' -ErrorAction SilentlyContinue | ForEach-Object {
+  Set-Content -Path (Join-Path $OutDir $_.Name) -Value (Redact (Get-Content -Raw $_.FullName))
+}
 
 $os = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
 $ok = $alive -and ($null -ne $tListen) -and ($apiStatus -eq '200')
@@ -116,13 +122,15 @@ if ($env:GITHUB_STEP_SUMMARY) { Add-Content -Path $env:GITHUB_STEP_SUMMARY -Valu
 Write-Host $summary
 $outTail = if (Test-Path $stdout) { (Get-Content $stdout -Tail 60) -join "`n" } else { '(no stdout)' }
 $errTail = if (Test-Path $stderr) { (Get-Content $stderr -Tail 60) -join "`n" } else { '(no stderr)' }
+$outTail = Redact $outTail
+$errTail = Redact $errTail
 Write-Host '--- stdout (last 60 lines) ---'; Write-Host $outTail
 Write-Host '--- stderr (last 60 lines) ---'; Write-Host $errTail
 Write-Annotation -Level notice -Title "smoke summary $os" -Message $summary -MaxChunks 1
-if ($ok -and (Test-Path $logFile)) { Write-Annotation -Level notice -Title "smoke ixian.log $os" -Message ((Get-Content $logFile -Tail 40) -join "`n") -MaxChunks 1 }
+if ($ok -and (Test-Path $logFile)) { Write-Annotation -Level notice -Title "smoke ixian.log $os" -Message (Redact ((Get-Content $logFile -Tail 40) -join "`n")) -MaxChunks 1 }
 if (-not $ok) {
   Write-Annotation -Level error -Title "smoke stderr $os" -Message $errTail -MaxChunks 2
   Write-Annotation -Level error -Title "smoke stdout $os" -Message $outTail -MaxChunks 2
-  if (Test-Path $logFile) { Write-Annotation -Level warning -Title "smoke ixian.log $os" -Message ((Get-Content $logFile -Tail 80) -join "`n") -MaxChunks 3 }
+  if (Test-Path $logFile) { Write-Annotation -Level warning -Title "smoke ixian.log $os" -Message (Redact ((Get-Content $logFile -Tail 80) -join "`n")) -MaxChunks 3 }
 }
 if (-not $ok) { exit 1 }

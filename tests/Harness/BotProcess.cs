@@ -16,7 +16,8 @@ namespace Harness
     /// The legacy bot (a5a3442 code, .NET 8, Core f6fb55b) as a child process (W11).
     /// Each instance gets a fresh copy of the bot output folder: the bot looks for its DLLs in the working
     /// folder and writes Data/, activity/ and its log there (Program.cs:33-41, Config.cs:95, Node.cs:235).
-    /// Started with: -t (testnet), -n 127.0.0.1:1 (an unreachable seed: no DLT, F4), free -p/-a ports,
+    /// Started with: -t (testnet), the seed from HarnessConfig.BotSeed (default: Core's testnet seeds; F4 is
+    /// refuted, the bot needs a block header before it answers hello), free -p/-a ports,
     /// -i 127.0.0.1, --disableWebStart, and --walletPassword (testnet only, Node.cs:120-126) so the bot makes
     /// its own wallet. The API login comes from ixian.cfg (addApiUser; no ':' in the password, Config.cs:207).
     /// </summary>
@@ -36,8 +37,9 @@ namespace Harness
         private BotProcess(string workDir)
         {
             WorkDir = workDir;
-            BotPort = FreePort();
-            ApiPort = FreePort();
+            var (botPort, apiPort) = FreePortPair();
+            BotPort = botPort;
+            ApiPort = apiPort;
             File.WriteAllText(Path.Combine(workDir, "ixian.cfg"), $"addApiUser = {apiUser}:{apiPassword}\n");
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic",
                 Convert.ToBase64String(Encoding.ASCII.GetBytes($"{apiUser}:{apiPassword}")));
@@ -150,19 +152,26 @@ namespace Harness
 
         public async ValueTask DisposeAsync()
         {
-            http.Dispose();
+            DisposeHttp();
             await Process.DisposeAsync().ConfigureAwait(false);
         }
 
+        public void DisposeHttp() => http.Dispose();
+
         private static string StripAnsi(string s) => Regex.Replace(s, @"\x1B\[[0-9;?]*[ -/]*[@-~]", "");
 
-        private static int FreePort()
+        /// <summary>Two distinct free ports: both listeners are held until both ports are read (review R1 m6).</summary>
+        private static (int, int) FreePortPair()
         {
-            var l = new TcpListener(IPAddress.Loopback, 0);
-            l.Start();
-            int p = ((IPEndPoint)l.LocalEndpoint).Port;
-            l.Stop();
-            return p;
+            var a = new TcpListener(IPAddress.Loopback, 0);
+            var b = new TcpListener(IPAddress.Loopback, 0);
+            a.Start();
+            b.Start();
+            int pa = ((IPEndPoint)a.LocalEndpoint).Port;
+            int pb = ((IPEndPoint)b.LocalEndpoint).Port;
+            a.Stop();
+            b.Stop();
+            return (pa, pb);
         }
 
         private static async Task<bool> CanConnect(int port)
@@ -179,16 +188,28 @@ namespace Harness
             }
         }
 
+        /// <summary>
+        /// Copies the build output without run state, so a bot that was once started from bin/ cannot leak an old
+        /// log line, wallet, config or data into a test (review R1 m3).
+        /// </summary>
         private static void CopyDir(string from, string to)
         {
+            string[] skipDirs = { "Data", "activity" };
             Directory.CreateDirectory(to);
-            foreach (string d in Directory.GetDirectories(from, "*", SearchOption.AllDirectories))
-            {
-                Directory.CreateDirectory(Path.Combine(to, Path.GetRelativePath(from, d)));
-            }
             foreach (string f in Directory.GetFiles(from, "*", SearchOption.AllDirectories))
             {
-                File.Copy(f, Path.Combine(to, Path.GetRelativePath(from, f)), true);
+                string rel = Path.GetRelativePath(from, f);
+                string top = rel.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
+                string name = Path.GetFileName(rel);
+                if (skipDirs.Contains(top, StringComparer.OrdinalIgnoreCase)
+                    || (rel == name && (name.StartsWith("ixian", StringComparison.OrdinalIgnoreCase)
+                                        && (name.EndsWith(".log", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".cfg", StringComparison.OrdinalIgnoreCase)))))
+                {
+                    continue;
+                }
+                string dest = Path.Combine(to, rel);
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                File.Copy(f, dest, true);
             }
         }
     }

@@ -9,8 +9,10 @@ dotnet tests/SimClient/bin/Release/net10.0/SimClient.dll --app store|redesign --
 ```
 
 Control: one JSON command per stdin line (`join`, `post`, `quit`). Output: one JSON event per stdout line
-(`ready`, `connected`, `accepted`, `info`, `channel`, `posted`, `ack`, `received`, `sent`, `expired`,
-`stream_error`, `error`, `crashed`, `bye`). Core logs go to `<data>/ixian.log`, never to stdout.
+(`ready`, `fatal`, `connected`, `hello_rejected`, `hello_attempts`, `join_sent`, `accepted`, `info`, `channel`,
+`posted`, `ack`, `received`, `dropped`, `other`, `sent`, `expired`, `stream_error`, `error`, `crashed`, `bye`).
+Core logs go to `<data>/ixian.log`, never to stdout. The process exits with `Environment.Exit` after `quit` or
+stdin EOF, because Core's client threads are foreground threads.
 
 ## App rules (W4)
 
@@ -31,4 +33,12 @@ R (redesign, `5d48669`). Both modes use Core k until BE-04 names the store app's
 
 The app connects to a bot only after a presence update; the harness has no presence network. SimClient sets
 bot mode before the contact request, pins `online`/`updatedStreamingNodes`/`relayNode = null`, connects by
-host and address, and re-pins every 30 s and after a stream error. See `Program.Join`.
+host and address, retries the connection every 2.5 s like the app until the bot's hello arrives, and re-pins
+every 30 s and after a stream error. See `Program.Join`. Verified in CI run 36848444730.
+
+## Bot prerequisite (F4 refuted)
+
+The old bot answers every client hello with "bye: not ready" until its TIV has a block header (Core f6fb55b
+`CoreNetworkProtocol.cs:509-514`). With no reachable seed that never happens; the harness therefore starts the
+bot with Core's testnet seeds (`HARNESS_BOT_SEED=testnet`, the default). Session 4 replaces this network
+dependency with a frozen header fixture.

@@ -22,8 +22,9 @@ namespace SimClient
     /// stdin  (one JSON object per line): {"cmd":"join","host":"127.0.0.1:port","address":"&lt;bot&gt;"}
     ///                                     {"cmd":"post","channel":1,"text":"hello"}
     ///                                     {"cmd":"quit"}
-    /// stdout (one JSON object per line): ready, connected, accepted, info, channel, posted, ack, received,
-    ///                                     sent, expired, stream_error, error, crashed, bye.
+    /// stdout (one JSON object per line): ready, fatal, connected, hello_rejected, hello_attempts, join_sent,
+    ///                                     accepted, info, channel, posted, ack, received, dropped, other, sent,
+    ///                                     expired, stream_error, error, crashed, bye.
     /// Every member is a fresh testnet wallet in a fresh data folder (no wallet pool: session 3 decision).
     /// </summary>
     internal static class Program

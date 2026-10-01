@@ -120,11 +120,6 @@ jobs:
             8.0.x
             10.0.x
 
-      - name: CI-only Linux start patch
-        if: runner.os == 'Linux'
-        shell: pwsh
-        run: ./Spixi-Bot/tests/smoke/patch-linux-start.ps1 -File Spixi-Bot/SpixiBot/Program.cs
-
       - name: Deliberate break (self-test only)
         if: matrix.variant == 'self-test'
         shell: pwsh
@@ -137,22 +132,6 @@ jobs:
       - name: Build SimClient (.NET 10, Core 097341a)
         shell: pwsh
         run: dotnet build Spixi-Bot/tests/SimClient/SimClient.csproj -c Release "-p:ClientCorePath=${{ github.workspace }}/Ixian-Core-k"
-
-      # Diagnostic: start one SimClient alone and print what it says (CI run 36841419911: it exited before
-      # "ready" and the reason was not captured). Never fails the job; the harness step decides.
-      - name: SimClient start smoke
-        timeout-minutes: 3
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $PSNativeCommandUseErrorActionPreference = $false
-          . ./Spixi-Bot/tests/smoke/annotate.ps1
-          $data = Join-Path $env:RUNNER_TEMP 'simclient-smoke'
-          $out = '{"cmd":"quit"}' | dotnet Spixi-Bot/tests/SimClient/bin/Release/net10.0/SimClient.dll --app redesign --data $data 2>&1 | Out-String
-          $code = $LASTEXITCODE
-          Write-Host $out
-          Write-Annotation -Level notice -Title "SimClient smoke exit=$code" -Message $out -MaxChunks 2
-          exit 0
 
       - name: Build harness
         shell: pwsh
@@ -172,7 +151,10 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           dotnet test Spixi-Bot/tests/Harness/Harness.csproj -c Release --no-build --logger "console;verbosity=detailed" 2>&1 | Tee-Object -FilePath harness-test.txt
           $code = $LASTEXITCODE
-          $marker = (Select-String -Path harness-test.txt -Pattern 'W8-RELAY-MISSING' -Quiet)
+          # One marker per case (review R1 M2): the self-test needs BOTH cases to fail for the relay reason.
+          $markerA = (Select-String -Path harness-test.txt -SimpleMatch 'W8-RELAY-MISSING[store->redesign]' -Quiet)
+          $markerB = (Select-String -Path harness-test.txt -SimpleMatch 'W8-RELAY-MISSING[redesign->store]' -Quiet)
+          $marker = $markerA -and $markerB
           # Failure details as annotations: readable via the public API without signing in (session 3).
           . ./Spixi-Bot/tests/smoke/annotate.ps1
           $fails = (Select-String -Path harness-test.txt -Pattern '(Failed |Error Message|HarnessTimeoutException|Assert\.)' -Context 0,3 | ForEach-Object { $_.Line + "`n" + ($_.Context.PostContext -join "`n") }) -join "`n"
@@ -182,8 +164,8 @@ jobs:
           }
           if ('${{ matrix.variant }}' -eq 'self-test') {
             # L5: the break must make the test fail, and for the right reason.
-            if ($code -ne 0 -and $marker) { Write-Host 'SELF-TEST OK: the broken bot failed Join_Post_Receive with W8-RELAY-MISSING'; exit 0 }
-            Write-Host "SELF-TEST FAILED: exit=$code marker=$marker (the harness did not detect the missing relay)"; exit 1
+            if ($code -ne 0 -and $marker) { Write-Host 'SELF-TEST OK: the broken bot failed both Join_Post_Receive cases with W8-RELAY-MISSING'; exit 0 }
+            Write-Host "SELF-TEST FAILED: exit=$code store->redesign=$markerA redesign->store=$markerB (the harness did not detect the missing relay in both cases)"; exit 1
           }
           exit $code
 
