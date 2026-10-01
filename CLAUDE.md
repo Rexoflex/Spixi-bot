@@ -72,6 +72,6 @@ win (skills, templates, lessons). Session prompts use `docs/templates/session-pr
 
 ## 6 · Where we are now
 
-Session 4 (2026-10-01): D-044 guard + B1a items 1–3 (join, relay/echo/ack, history cursor) green in CI with one
-self-test job per break (PR #2, D-045); review CLEAN. **Next session: read `docs/handoff-2026-10-01-s4.md` first,
-then paste `docs/prompts/session-5.md`.**
+Session 5 (2026-10-01): B1a items 4–7 (reactions/deletes, info variants, unknown codes, leave) + W12 green in CI,
+14 cases, 11 self-tests (PR #3, D-047, D-048). B1a contract scenarios are complete. **Next session: read
+`docs/handoff-2026-10-01-s5.md` first, then paste `docs/prompts/session-6.md`.**

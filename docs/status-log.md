@@ -49,3 +49,17 @@ One entry per session, newest last. `CLAUDE.md` §6 only points at the latest ha
   works) → fixed with link proofs for every marker; r3 CLEAN.
 - Damir: no AI attribution in commits; fork history rewritten after the merge (D-046, `docs/sha-map.md`).
   Push 2: run 36859197427 green. No bot code changed.
+
+## Session 5 — 2026-10-01 — B1a items 4–7 and W12
+
+- Reverse interview (2 rounds): SimClient inject for messages the legacy bot never sends; client-Core break for "no
+  crash"; breaks reaction, delete, delete-sign, admin, servername, leave, unknown; 4 scenarios; hazard characterized and
+  recorded; ≤ 4 pushes.
+- Built with two parallel agents on a written contract (SimClient / harness+CI); pre-push review by three parallel
+  reviewers: r1 0 MAJOR, 7 MINOR fixed; r2 CLEAN.
+- PR #3 (`b1a/items-4-7` → `rework/bot`), push 1 `8a7a3c8`, CI run 36868901167: all 15 jobs green — normal 14/14;
+  every self-test failed every case with exactly its marker. Store leave: exit 0xC00000FD → `crashed`
+  (stackOverflow). Unknown: FailFast 0x80131623 after the positive control.
+- New facts: legacy-layout BotInfo + trailing bytes is dropped by Core k (D-048); reaction cursor = target id;
+  own reaction echo dropped; every bot settings save stamps generatedTime, so an admin change replaces the client's
+  botInfo. No bot code changed. D-047, D-048.
