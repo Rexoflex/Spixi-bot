@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    SimClient: one simulated Spixi member per process (harness design D-031, docs/design/harness.md).
+    Compiled against the CLIENT Core (097341a = xcore-0.9.8k, the redesign's Core; W3: store mode uses it too
+    until BE-04 names the store app's Core). Never compiled together with the bot's Core (F2).
+    ClientCorePath: CI checks Core k out into ../Ixian-Core-k beside the repo; locally, pass
+    -p:ClientCorePath=<your Core k checkout>.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Core k builds with these settings (Core UnitTests/Ixian-UnitTests.csproj @ 097341a). -->
+    <DefineConstants>$(DefineConstants);__ROCKS_DB_SHARP__</DefineConstants>
+    <RootNamespace>SimClient</RootNamespace>
+    <AssemblyName>SimClient</AssemblyName>
+    <!-- Core is third-party code here: its warnings are not ours to fix. -->
+    <NoWarn>$(NoWarn);CS8600;CS8601;CS8602;CS8603;CS8604;CS8618;CS8625;CS0168;CS0162;CS0219;CS0414;CS1998;CS4014;SYSLIB0021;SYSLIB0023;SYSLIB0045;CA1416</NoWarn>
+    <ClientCorePath Condition="'$(ClientCorePath)' == ''">$(MSBuildThisFileDirectory)..\..\..\Ixian-Core-k</ClientCorePath>
+  </PropertyGroup>
+
+  <Import Project="$(ClientCorePath)\IXICore.projitems" Label="Shared" />
+
+  <!-- Package versions copied from Core UnitTests/Ixian-UnitTests.csproj @ 097341a (test frameworks dropped). -->
+  <ItemGroup>
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
+    <PackageReference Include="FluentCommandLineParser-netstandard" Version="1.4.3.13" />
+    <PackageReference Include="Mono.Nat" Version="3.0.4" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="RocksDB" Version="11.1.2.3412" />
+  </ItemGroup>
+</Project>
