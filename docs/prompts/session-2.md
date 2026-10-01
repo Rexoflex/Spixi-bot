@@ -1,4 +1,4 @@
-# Next-session prompt (paste as the first message)
+# Session 2 prompt (as used, 2026-10-01)
 
 ```
 Read CLAUDE.md, then docs/handoff-2026-10-01.md, then DECISIONS D-002, D-014, D-020…D-034.

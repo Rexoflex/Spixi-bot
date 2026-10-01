@@ -19,3 +19,6 @@ Source numbers are Spixi DECISIONS rows unless marked `D-`.
 | L12 | Research agents with disjoint scopes + a verification step found problems a quick scan missed (unauthenticated client transport, sender spoofing, a likely crash). | D-session-1 |
 | L13 | Classify per message type, with `file:line`, before writing a security rule; "all X are signed" was false and a whole rule rested on it. | session-1 review R1-M1/M2 |
 | L14 | A control for a live critical exposure needs its own adversarial pass: the first two B0 versions still left impersonation open. | session-1 review R2/R3 |
+| L15 | Ask "is this worth doing at all?" before specifying a fix for a system that is being retired; it cut B0 from ~3–4 days to a 10-minute check. | session 2, D-041 |
+| L16 | An operator procedure is inside the threat model: the first "safe" check sent the operator into the stored-XSS admin page. | session 2 review R1-M1 |
+| L17 | From the session VM run git with `--no-optional-locks`; an index.lock the VM cannot delete blocks GitHub Desktop. | session 2 |
