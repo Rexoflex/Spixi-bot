@@ -58,6 +58,7 @@ win (skills, templates, lessons). Session prompts use `docs/templates/session-pr
 | `docs/test-strategy.md` | Test pyramid, harness, CI gates |
 | `docs/status-log.md` | Session-by-session history |
 | `docs/handoff-*.md` | The latest handoff = where the next session starts |
+| `docs/prompts/session-N.md` | Session prompts, numbered; the highest number is the next one to paste |
 
 ## 5 · Environment notes
 
@@ -69,5 +70,5 @@ win (skills, templates, lessons). Session prompts use `docs/templates/session-pr
 
 ## 6 · Where we are now
 
-Session 1 (2026-10-01): process set up, research audit done, base designs graded, reviewed. **Next session:
-read `docs/handoff-2026-10-01.md` first.**
+Session 2 (2026-10-01): B0 is an operator check (no code), BE asks ready, harness design graded. **Next session:
+read `docs/handoff-2026-10-01-s2.md` first.**

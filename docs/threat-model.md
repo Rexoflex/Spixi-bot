@@ -30,7 +30,7 @@ rework enforces, where, and when. Update it in every batch that touches a threat
 | S1 | **Authorship = signature, per message class** (design item "delivery semantics" fixes the details before B3/B4 code). For every **signed** type: `Address(pubkey) == sender`, valid signature, `sender == connection wallet`. Replay: random-id types (chat, reaction, delete, admin actions) use a cache on `(sender, id, checksum)`; fixed-id types (`nick` {5}, `avatar` {6}, `requestAdd`/`requestAdd2` {0}) require a timestamp that increases per `(sender, type)`. The time window is set from measured client retry behaviour (clients retry for up to 5 days with the original timestamp, and send once more after expiry). The full per-type signed/unsigned table with `file:line` is D2's first input. **Every drop reason has a defined ack rule** (duplicate → ack and ignore; policy rejection → documented). | T1, T9, T10, T12, T24 |
 | S1b | **Unsigned types are read-only.** `getInfo`, `botGetMessages`, `getChannels`, `getUsers`, `getGroups` and `getUser` are unsigned: they may never create or change state (today `getInfo` creates users). Replies go to the **requesting connection object**, never to an address lookup. | T13, T14, review M2 |
 | S2 | **Privileged actions need a signed command** from an address with enough permission level; never trust the connection alone. | T2, T8, T21 |
-| S3 | **Membership gates everything:** fan-out, history, member list, pubkeys, nicks — members only; banned/kicked get nothing. This protects against banned/kicked addresses and (later) closed mode; it adds nothing while anyone can join with one unsigned `getInfo`, which is why B0 does not use it. (Limit: see §5.) | T7, T8, T14, T17 |
+| S3 | **Membership gates everything:** fan-out, history, member list, pubkeys, nicks — members only; banned/kicked get nothing. This protects against banned/kicked addresses and (later) closed mode; it adds nothing while anyone can join with one unsigned `getInfo`, which is why it is not a control for the old bot. (Limit: see §5.) | T7, T8, T14, T17 |
 | S4 | **Hard limits on every input:** per-type size caps (chat, nick, avatar, reaction), per-address and per-connection rate limits, history page size, storage budget. | T5, T13, T14, T15 |
 | S5 | **The bot never holds member funds.** Paid messages are out of v1. | T6, T11 |
 | S6 | **No address, IP, content, pubkey or secret in logs or metrics.** Aggregates only (D-012). Core also logs addresses and IPs at info level → a redaction sink in the bot, plus a BE ask. | T18, T19 |
@@ -44,7 +44,7 @@ rework enforces, where, and when. Update it in every batch that touches a threat
 
 | Threat | Control | When | Owner |
 |---|---|---|---|
-| T1, T3, T4 live in production today | **B0 legacy hotfix** on the running build: API auth + loopback, admin UI off, cost 0, relayed chat/nick/avatar/reaction/delete/`leave` accepted only with `sender == connection` **and a valid signature** against `endpoint.presence.pubkey`; log-only first, then enforcing. Closes posting-as-others and forced-leave; does **not** close reading-as-others (T2). | now (days) | us + operator |
+| T1, T3, T4 live in production today (old bot) | **B0 operator check, no code** (D-041, `docs/design/b0-check.md`): API on localhost with a login and `disableWebStart`; **nobody opens the admin web page** (T3); cost 0; wallet holds only small change. T1, forced leave and T3-by-rule stay as accepted risks on the old bot until its shutdown (§5). | now (5 min) | operator |
 | T1 sender spoofing | S1 in the protocol adapter | v1 | us |
 | T1 client-side verification | Clients verify relayed chat signatures | later | BE |
 | T2 unauthenticated client transport | S2 in v1; Core challenge-response | v1 / later | us / BE |
@@ -64,6 +64,7 @@ rework enforces, where, and when. Update it in every batch that touches a threat
 
 ## 5 · Accepted risks (documented for self-hosters)
 
+- **Old bot until its shutdown (D-041, ~10 weeks):** anyone can post as another member, force a member to leave, or delete messages by connecting as an admin; local code on the server can use the API with the login; the admin page's stored XSS (T3) is held only by the rule that nobody opens it. Full list: `docs/design/b0-check.md` §4. Accepted because the old bot is little used and is switched off; any impersonation report reopens D-035.
 - The bot operator can read all channel messages (no E2E for bot channels today).
 - Until Core authenticates client connections (T2, BE), someone who knows a member's public key can **connect** as
   that member: they **receive what that member receives** (so a banned person can still read by borrowing another

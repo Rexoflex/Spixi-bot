@@ -3,6 +3,7 @@
 Session 1, 2026-10-01, **revision 3** after four adversarial review rounds (`docs/reviews/session-1-verdict.md`).
 Inputs: `docs/research/A`–`E` + `ERRATA.md`. Rubric: `docs/process.md` §G1. Status: 🟡 recommendation,
 awaiting Damir (and BE for the protocol items). Decision row: D-020.
+*Session 2:* Damir accepted C (D-020); the switch-over leans to a new address (D-034), so there is no migration; B0 is an operator check, no code (D-041).
 
 ## 0 · Facts that constrain every option
 
@@ -40,8 +41,8 @@ Two further candidates were considered and are **not base options**:
 - **Core P2P groups (`FriendType.Group`) for closed groups** — a closed-mode strategy, not a base. It is encrypted and
   authenticated, but it relays through the owner's device and has no history for late joiners (members get nothing
   while the owner is offline). Graded later in the closed-mode design; it may replace D-026.
-- **Hotfix legacy + shadow-run the new bot** — a rollout strategy. Adopted in part as batch B0 (roadmap) and in the
-  cutover design.
+- **Hotfix legacy + shadow-run the new bot** — a rollout strategy. Adopted in part in the cutover design; the B0 code
+  hotfix was later dropped (D-041).
 
 ## 2 · Grading (1–5, weights ×3 ×2 ×2 ×1 ×1 ×1, max 50)
 
@@ -64,7 +65,7 @@ Harsh notes:
 - **B** buys integrations with two projects of work, and its member model (one `Friend` + files per member) does not
   fit a channel of thousands.
 - **E** avoids migration risk, but every member must re-join and lose history. Keep it as the fallback if the
-  cutover design (below) finds migration unsafe.
+  cutover design (below) finds migration unsafe. *(Session 2: E's switch-over is now the plan, D-034.)*
 - **Blind second grading** (round-2 reviewer, before reading these scores): A′ 32 · B 27 · **C 40** · E 34. No cell differs by more than 1 point; the winner is the same.
 
 ## 3 · Recommendation: C, with its weaknesses fixed
@@ -89,4 +90,4 @@ delivery semantics (with S1 per message class), admin surface, cutover and rollb
 | Delivery ≥ 99% | Two numbers, never mixed: **server hand-off rate** (counters) and **delivery** = share of messages that exist in the member's local log. Denominator: every message × every member who connects within 24 h of it; members who stay offline longer are reported separately. | Harness clients compare local log vs bot log; a pilot cohort of instrumented apps does the same. Until clients ack (D-016), launch is judged on the ground-truth numbers only. |
 | Join ≤ 2 s | From `requestAdd` sent to "last history item stored + member list ready" at the client, p95. | Harness plus a timed real-app join in the pilot (the app's own per-message disk I/O is part of the cost). |
 | Moderation | After a ban: the next post from that address is rejected, it receives no fan-out and no history. | Integration tests. **Limit:** until Core authenticates client connections, a banned person who knows another member's public key can still read by connecting as that member. |
-| Zero data loss | Migration keeps every message id, byte-exact, in order; **no acknowledged message is lost** in a crash (ack only after a durable write). | Migration test on a real copy under access control; crash-injection tests. |
+| Zero data loss | *(Session 2: no migration — new address, D-034/D-027; applies to an optional history import only.)* Migration keeps every message id, byte-exact, in order; **no acknowledged message is lost** in a crash (ack only after a durable write). | Migration test on a real copy under access control; crash-injection tests. |
