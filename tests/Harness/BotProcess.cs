@@ -41,11 +41,14 @@ namespace Harness
             File.WriteAllText(Path.Combine(workDir, "ixian.cfg"), $"addApiUser = {apiUser}:{apiPassword}\n");
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic",
                 Convert.ToBase64String(Encoding.ASCII.GetBytes($"{apiUser}:{apiPassword}")));
-            string[] args =
+            var argList = new List<string> { "SpixiBot.dll", "-t" };
+            if (HarnessConfig.BotSeed != "testnet")
             {
-                "SpixiBot.dll", "-t", "-n", "127.0.0.1:1", "-p", BotPort.ToString(), "-a", ApiPort.ToString(),
-                "-i", "127.0.0.1", "--disableWebStart", "--walletPassword", "harness-bot-wallet-pw",
-            };
+                argList.AddRange(new[] { "-n", "127.0.0.1:1" });
+            }
+            argList.AddRange(new[] { "-p", BotPort.ToString(), "-a", ApiPort.ToString(),
+                "-i", "127.0.0.1", "--disableWebStart", "--walletPassword", "harness-bot-wallet-pw" });
+            string[] args = argList.ToArray();
             Process = HarnessConfig.BotOwnConsole
                 ? ManagedProcess.StartWithOwnConsole("bot", DotnetHost(), args, workDir, Path.Combine(workDir, "ixian.log"))
                 : new ManagedProcess("bot", "dotnet", args, workDir);

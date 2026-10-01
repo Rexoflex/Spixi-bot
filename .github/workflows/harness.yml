@@ -76,7 +76,7 @@ jobs:
   # Join_Post_Receive with the legacy bot and two SimClients (store + redesign rules, both on Core k: W3).
   # The self-test variant removes the bot's chat relay first and must FAIL with the W8 marker (L5).
   harness:
-    name: harness ${{ matrix.variant }} (${{ matrix.os }})
+    name: harness ${{ matrix.variant }} seed=${{ matrix.seed }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -85,6 +85,12 @@ jobs:
         # Windows the nested open fails fast with a sharing violation). Production is Windows (inference).
         os: [ windows-latest ]
         variant: [ normal, self-test ]
+        seed: [ none ]
+        # Measurement (session 3, push 6): the same scenario with the real testnet seeds, so TIV can fetch headers.
+        include:
+          - os: windows-latest
+            variant: normal
+            seed: testnet
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
@@ -163,6 +169,7 @@ jobs:
           HARNESS_SIMCLIENT_DLL: ${{ github.workspace }}/Spixi-Bot/tests/SimClient/bin/Release/net10.0/SimClient.dll
           HARNESS_ARTIFACTS: ${{ github.workspace }}/harness-out
           HARNESS_BOT_CONSOLE: ${{ runner.os == 'Windows' && '1' || '0' }}
+          HARNESS_BOT_SEED: ${{ matrix.seed }}
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
           dotnet test Spixi-Bot/tests/Harness/Harness.csproj -c Release --no-build --logger "console;verbosity=detailed" 2>&1 | Tee-Object -FilePath harness-test.txt
@@ -171,7 +178,7 @@ jobs:
           # Failure details as annotations: readable via the public API without signing in (session 3).
           . ./Spixi-Bot/tests/smoke/annotate.ps1
           $fails = (Select-String -Path harness-test.txt -Pattern '(Failed |Error Message|HarnessTimeoutException|Assert\.)' -Context 0,3 | ForEach-Object { $_.Line + "`n" + ($_.Context.PostContext -join "`n") }) -join "`n"
-          if ($fails) { Write-Annotation -Level error -Title 'harness ${{ matrix.variant }} ${{ matrix.os }} failures' -Message $fails -MaxChunks 2 }
+          if ($fails) { Write-Annotation -Level error -Title 'harness ${{ matrix.variant }} seed=${{ matrix.seed }} ${{ matrix.os }} failures' -Message $fails -MaxChunks 2 }
           Get-ChildItem harness-out -Filter '*.FAILED.log' -ErrorAction SilentlyContinue | Select-Object -First 2 | ForEach-Object {
             Write-Annotation -Level warning -Title ('log ' + $_.Name) -Message (Get-Content $_.FullName -Raw) -MaxChunks 4
           }
@@ -186,7 +193,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: harness-${{ matrix.variant }}-${{ matrix.os }}
+          name: harness-${{ matrix.variant }}-${{ matrix.seed }}-${{ matrix.os }}
           path: |
             harness-out
             harness-test.txt
