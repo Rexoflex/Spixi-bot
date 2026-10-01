@@ -11,4 +11,7 @@ What does not change (GitHub limits): PR #1 and PR #2 keep their original commit
 commits stay reachable by SHA until GitHub garbage-collects them. Full removal needs a request to GitHub Support
 (ask them to remove cached views/refs) or a re-created fork.
 
+**Done 2026-10-01:** `rework/bot` `266ff99` → `59c1f74` (forced update), 18 commits rewritten, trees identical,
+0 attribution lines left. Map: `docs/sha-map.md`.
+
 The filter script: `strip-trailers.sh` (session-4 scratch, `_to_delete/s4/`; kept out of the repo).

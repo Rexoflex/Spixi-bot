@@ -47,4 +47,5 @@ One entry per session, newest last. `CLAUDE.md` §6 only points at the latest ha
 - CI run 36856754230 (push 1): all green — normal 6/6; each self-test failed every case with its own marker.
 - Review: pre-push r1 (1 MAJOR, 3 MINOR) fixed before push; r2 NOT CLEAN (INFRA label without proof that the API
   works) → fixed with link proofs for every marker; r3 CLEAN.
-- Damir: no AI attribution in commits; fork history to be rewritten (D-046). No bot code changed.
+- Damir: no AI attribution in commits; fork history rewritten after the merge (D-046, `docs/sha-map.md`).
+  Push 2: run 36859197427 green. No bot code changed.
