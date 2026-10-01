@@ -106,7 +106,7 @@ namespace SimClient
 
             stage = "client managers";
             PeerStorage.init(data);                                                   // R :125
-            NetworkClientManager.init(new NetworkClientManagerStatic(1));             // R :128-129, never started: no seeds
+            NetworkClientManager.init(new NetworkClientManagerStatic(3));             // R :128-129, never started: no seeds; Core requires >= 3 (NetworkClientManagerBase.cs:53-56, CI run 36844069755)
             StreamClientManager.init(4, false);                                       // R :130 (no random S2 nodes here)
             stage = "stream processor";
             SimNode.streamProcessor = new SimStreamProcessor(new SimPendingMessageProcessor(data),
