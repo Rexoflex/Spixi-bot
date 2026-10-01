@@ -29,6 +29,21 @@ namespace SimClient.Glue
             StreamMessage? peek = null;
             try { peek = new StreamMessage(bytes); } catch (Exception) { }
 
+            // Peek the SpixiMessage before Core runs, for the `rejected` event. Only unencrypted messages: every
+            // bot message is (bot StreamProcessor.cs:498-512 sendBotAction, encryption none); an encrypted payload
+            // would parse as garbage. A failed peek emits nothing. Note: Core k SpixiMessage(byte[]) catches its
+            // own parse errors and yields type chat with null data (SpixiMessage.cs:98-138).
+            SpixiMessage? peekSm = null;
+            try
+            {
+                if (peek != null && peek.type != StreamMessageCode.error && peek.data != null
+                    && peek.encryptionType == StreamMessageEncryptionCode.none)
+                {
+                    peekSm = new SpixiMessage(peek.data);
+                }
+            }
+            catch (Exception) { }
+
             ReceiveDataResponse? rdr = base.receiveData(bytes, endpoint, fireLocalNotification, alert);
 
             if (peek != null && peek.type == StreamMessageCode.error)
@@ -41,6 +56,12 @@ namespace SimClient.Glue
             }
             if (rdr == null)
             {
+                // Core refused the message (a handler returned false, a check failed, or Core caught an exception,
+                // C CoreStreamProcessor.cs:1593-1597). The app sees nothing in this case (U/R switch only on rdr).
+                if (peek != null && peekSm != null)
+                {
+                    EmitRejected(peek, peekSm);
+                }
                 return null;
             }
 
@@ -67,7 +88,25 @@ namespace SimClient.Glue
                         }
                         else if (sba.action == SpixiBotActionCode.info)
                         {
-                            Events.Emit("info", new Dictionary<string, object?> { ["defaultChannel"] = friend?.metaData?.botInfo?.defaultChannel });
+                            // Parsed = what the bot sent (Core k BotInfo.cs:48-77); stored = what Core kept after
+                            // onBotAction (C :2676-2707: replaced only when settingsGeneratedTime changed; then the
+                            // nickname is set from serverName).
+                            BotInfo? parsed = null;
+                            try { parsed = new BotInfo(sba.data); } catch (Exception) { }
+                            BotInfo? stored = friend?.metaData?.botInfo;
+                            Events.Emit("info", new Dictionary<string, object?>
+                            {
+                                ["defaultChannel"] = stored?.defaultChannel,
+                                ["serverName"] = parsed?.serverName,
+                                ["randomId"] = parsed?.randomId == null || parsed.randomId.Length == 0 ? null : Crypto.hashToString(parsed.randomId),
+                                ["hide"] = parsed?.hideParticipantAddresses,
+                                ["userCount"] = parsed?.userCount,
+                                ["admin"] = parsed?.admin,
+                                ["generatedTime"] = parsed?.settingsGeneratedTime,
+                                ["nickname"] = friend?.nickname,
+                                ["storedAdmin"] = stored?.admin,
+                                ["storedGeneratedTime"] = stored?.settingsGeneratedTime,
+                            });
                         }
                         else if (sba.action == SpixiBotActionCode.user)
                         {
@@ -116,6 +155,32 @@ namespace SimClient.Glue
                         });
                         break;
 
+                    case SpixiMessageCode.msgReaction:
+                        {
+                            // U :464-474, R :715-732: UI only (unread count, reaction refresh). Core already stored it
+                            // (C :1368-1398 → handleMsgReaction :1678-1695).
+                            ReactionMessage rm = new ReactionMessage(sm.data);
+                            Events.Emit("reaction", new Dictionary<string, object?>
+                            {
+                                ["id"] = msg.id == null ? null : Crypto.hashToString(msg.id),
+                                ["target"] = rm.msgId == null ? null : Crypto.hashToString(rm.msgId),
+                                ["reaction"] = rm.reaction,
+                                ["from"] = rdr.groupSenderAddress?.ToString(),
+                                ["channel"] = sm.channel,
+                            });
+                        }
+                        break;
+
+                    case SpixiMessageCode.msgDelete:
+                        // U :459-462, R :699-713: UI only. Core already deleted the row (C :1349-1366 → handleMsgDelete :1665-1676).
+                        Events.Emit("deleted", new Dictionary<string, object?>
+                        {
+                            ["id"] = msg.id == null ? null : Crypto.hashToString(msg.id),
+                            ["target"] = sm.data == null ? null : Crypto.hashToString(sm.data),
+                            ["channel"] = sm.channel,
+                        });
+                        break;
+
                     default:
                         Events.Emit("other", new Dictionary<string, object?> { ["type"] = sm.type.ToString() });
                         break;
@@ -128,6 +193,40 @@ namespace SimClient.Glue
                 Events.Error("receiveData", e);
             }
             return rdr;
+        }
+
+        /// <summary>
+        /// `rejected`: Core returned null for a message that parsed. An undefined enum value prints as its
+        /// number (Enum.ToString), so unknown codes and actions appear as e.g. "245" / "99".
+        /// </summary>
+        private static void EmitRejected(StreamMessage peek, SpixiMessage sm)
+        {
+            try
+            {
+                string? action = null;
+                if (sm.type == SpixiMessageCode.botAction && sm.data != null)
+                {
+                    action = new SpixiBotAction(sm.data).action.ToString();
+                }
+                string? data = null;
+                if ((sm.type == SpixiMessageCode.msgReceived || sm.type == SpixiMessageCode.msgDelete) && sm.data != null)
+                {
+                    data = Crypto.hashToString(sm.data);
+                }
+                Events.Emit("rejected", new Dictionary<string, object?>
+                {
+                    ["type"] = sm.type.ToString(),
+                    ["action"] = action,
+                    ["id"] = peek.id == null ? null : Crypto.hashToString(peek.id),
+                    ["data"] = data,
+                    ["channel"] = sm.channel,
+                    ["from"] = peek.sender?.ToString(),
+                });
+            }
+            catch (Exception e)
+            {
+                Events.Error("rejected", e);
+            }
         }
     }
 }

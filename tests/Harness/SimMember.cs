@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -77,6 +78,61 @@ namespace Harness
         public Task<OutputLine> WaitPostedAsync(string text, int from) =>
             Process.WaitFor(l => l.Ev == "posted" && l.Str("text") == text, HarnessConfig.DeliveryTimeout, "'posted' event",
                 failIf: l => l.Ev == "error" && l.Str("where") == "command", from: from);
+
+        /// <summary>
+        /// L18 link proof: posts <paramref name="text"/>, waits for the bot's ack of it AND for its own echo (the bot
+        /// relays to every member, the poster included, StreamProcessor.cs:418). Both directions of this member's
+        /// connection work. False on a timeout; never throws a marker.
+        /// </summary>
+        public async Task<bool> TryProveLinkAsync(int channel, string text)
+        {
+            int mark = Process.Mark();
+            try
+            {
+                await PostAndWaitAckAsync(channel, text).ConfigureAwait(false);
+                await Process.WaitForEvent("received", HarnessConfig.DeliveryTimeout, l => l.Str("text") == text, mark).ConfigureAwait(false);
+                return true;
+            }
+            catch (HarnessTimeoutException)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>App rule `react` (SimClient README): local addReaction, then sendReaction only if it was added. Emits `reacted`.</summary>
+        public int React(int channel, string hexId, string reaction) => Process.Send(new { cmd = "react", channel, id = hexId, reaction });
+
+        /// <summary>App rule `delete` for a bot: sendMsgDelete, no local delete. Emits `delete_sent`.</summary>
+        public int Delete(int channel, string hexId) => Process.Send(new { cmd = "delete", channel, id = hexId });
+
+        /// <summary>App rule `leave` (store: pendingDeletion + sendLeave; redesign: sendLeave + removeFriend). Emits `leave_sent`.</summary>
+        public int Leave() => Process.Send(new { cmd = "leave" });
+
+        /// <summary>
+        /// Injects a message as if the bot sent it (SimClient `inject`, parsed synchronously by the member's Core).
+        /// Every event the injection caused comes before its `injected` event (<see cref="WaitInjectedAsync"/>).
+        /// </summary>
+        public int Inject(string kind, params (string Key, object? Value)[] fields)
+        {
+            var command = new Dictionary<string, object?> { ["cmd"] = "inject", ["kind"] = kind };
+            foreach ((string key, object? value) in fields)
+            {
+                command[key] = value;
+            }
+            return Process.Send(command);
+        }
+
+        /// <summary>Waits for the `injected` event of <paramref name="kind"/>; an `error` after the command ends the wait at once.</summary>
+        public Task<OutputLine> WaitInjectedAsync(string kind, int from) =>
+            WaitCommandEventAsync("injected", l => l.Str("kind") == kind, from);
+
+        /// <summary>
+        /// Waits for the event a command emits after its action (`reacted`, `delete_sent`, `leave_sent`, `injected`).
+        /// An `error` event after the command (a failed command) ends the wait at once.
+        /// </summary>
+        public Task<OutputLine> WaitCommandEventAsync(string ev, Func<OutputLine, bool>? and, int from) =>
+            Process.WaitFor(l => l.Ev == ev && (and == null || and(l)), HarnessConfig.DeliveryTimeout, $"'{ev}' event",
+                failIf: l => l.Ev == "error", from: from);
 
         /// <summary>No sign that the process cannot go on (exit, crash, fatal, a dropped message or an error).</summary>
         public bool Healthy() => !Process.Snapshot().Any(l => l.Ev is "exited" or "crashed" or "fatal" or "dropped" or "error");

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using IXICore;
@@ -22,6 +23,19 @@ namespace SimClient.Glue
 
         /// <summary>Set when a hello from a bot friend completes; the join waits on it.</summary>
         public static event Action<Address>? BotHelloCompleted;
+
+        /// <summary>
+        /// The connection of each bot friend, saved at its helloData ('C' branch below), keyed by the bot's
+        /// address string. `inject` hands it to parseProtocolMessage(s2data, ...) so an injected message enters
+        /// through the same call a wire message uses. Written on the network thread, read on the command thread.
+        /// </summary>
+        private static readonly ConcurrentDictionary<string, RemoteEndpoint> botEndpoints = new ConcurrentDictionary<string, RemoteEndpoint>();
+
+        /// <summary>The bot's connection saved at its last helloData, or null when no hello completed yet.</summary>
+        public static RemoteEndpoint? GetBotEndpoint(Address bot)
+        {
+            return botEndpoints.TryGetValue(bot.ToString(), out RemoteEndpoint? ep) ? ep : null;
+        }
 
         public override Block? getBlockHeader(ulong blockNum) => null;              // NO-OP: no DLT
         public override byte[]? getBlockHash(ulong blockNum) => null;              // NO-OP: no DLT
@@ -79,6 +93,7 @@ namespace SimClient.Glue
                                 Friend? f = FriendList.getFriend(endpoint.presence!.wallet);
                                 if (f != null && f.bot)
                                 {
+                                    botEndpoints[f.walletAddress.ToString()] = endpoint;   // harness only: for `inject`
                                     CoreStreamProcessor.sendGetBotInfo(f);
                                 }
                                 Events.Emit("connected", new Dictionary<string, object?>

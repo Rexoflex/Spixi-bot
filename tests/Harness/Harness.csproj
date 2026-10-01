@@ -2,8 +2,9 @@
   <!--
     Harness (D-031, docs/design/harness.md §5): starts the legacy bot process and SimClient processes and
     waits on their events. It references neither the bot nor any Core: processes and files are the only
-    bridges (F2). Session 4 (B1a): the characterization scenarios live here too (JoinHandshake, RelayEchoAck,
-    HistoryCursor; trait `scenario` selects them in CI). A separate Contract.Tests project (harness.md §5) waits
+    bridges (F2). Session 4-5 (B1a): the characterization scenarios live here too (JoinHandshake, RelayEchoAck,
+    HistoryCursor, ReactDelete, InfoVariants, UnknownCodes, Leave; trait `scenario` selects them in CI). A separate
+    Contract.Tests project (harness.md §5) waits
     until the scenario count justifies it (session-4 decision).
     Inputs come from environment variables (see HarnessConfig.cs); CI sets them.
   -->

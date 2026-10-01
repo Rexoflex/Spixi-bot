@@ -48,7 +48,7 @@ production copy under access control for the optional history import (scrubbing 
 
 | Job | Runs | Blocks merge |
 |---|---|---|
-| legacy (until B1b) | .NET 8 + Core `f6fb55b`: build + start smoke on Linux and Windows; the B1a characterization suite runs in the `harness` job on **Windows** (D-043) against a bot that gets its block header from the testnet seeds (D-044, guard: no header in 60 s → `INFRA-TESTNET-UNREACHABLE`), with one self-test job per deliberate break (`relay`, `ack`, `info`, `cursor`, `seed-none`; D-045, L5, L18). Workflow: `.github/workflows/harness.yml` | yes for B1a |
+| legacy (until B1b) | .NET 8 + Core `f6fb55b`: build + start smoke on Linux and Windows; the B1a characterization suite runs in the `harness` job on **Windows** (D-043) against a bot that gets its block header from the testnet seeds (D-044, guard: no header in 60 s → `INFRA-TESTNET-UNREACHABLE`), with one self-test job per deliberate break (`relay`, `ack`, `info`, `cursor`, `seed-none`; D-045, L5, L18; session 5 adds `reaction`, `delete`, `delete-sign`, `admin`, `servername`, `leave` and the client-Core break `unknown`, D-047). Workflow: `.github/workflows/harness.yml` | yes for B1a |
 | build | .NET 10 SDK, Core checked out at the pinned commit, warnings-as-errors for new code, deterministic build | yes |
 | test | unit, property, snapshot, contract, integration (short) | yes |
 | mutation | Stryker on changed core modules | report-only until the .NET 10 trial run passes (D-028), then blocking at threshold 60 |

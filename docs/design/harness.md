@@ -77,7 +77,7 @@ contract tests). B wins on speed and determinism; C on realistic input. Both str
 | W9 App join path (F3) | Known divergence: the driver adds the bot friend, calls `setBotMode()` (C `Friend.cs:250`), opens `connectTo(host, botAddress)` before `requestAdd2`, and pins `online = true`, `updatedStreamingNodes = now`, `relayNode = null` so `PendingMessageProcessor` sends directly (C `PendingMessageProcessor.cs:437-438`, `CoreConfig.cs:120`, `NetworkClientManagerBase.cs:984`); it re-pins at least every 300 s and after any `error` from the bot (which resets them, `CoreStreamProcessor.cs:719-724`). Extra `fetchFriendsPresence` calls are expected noise. Marked as a divergence in the report; the app's presence path is covered in the B7 pilot with real apps. If the spike shows the bot rejects this, the fixture runs a stub seed that answers presence. |
 | W10 App glue (F5) | The driver implements the minimum glue (node subclass, pending-message processor, stream processor that emits events) and nothing else; every glue method that is a no-op says so in a comment and in the driver README. |
 | W11 Ports, IP and startup | The fixture always starts the bot with `-p <free port> -a <free port> -i 127.0.0.1 --disableWebStart` and a test config (`Config.cs:16,23`, `Node.cs:72,246-249`). *Rev 3 (spike):* **no wallet pool** — keygen measured at 0.4–1.4 s per member in CI, so each bot and SimClient makes a fresh testnet wallet; a fresh copy of the bot output per test (the bot reads DLLs and writes `Data/`, `activity/`, logs relative to its working folder); a default group (cost 0) and channel are seeded through the API (a fresh bot has none; chat on channel 0 is dropped, `StreamProcessor.cs:379`). |
-| W12 Store-mode crash on `leaveConfirmed` | The store app recurses in `StreamClientManager.getClient` (C `:118-121`, research D). Out-of-process isolation keeps the test alive; the harness reports a driver exit as a `crashed` event and the store `leave` test expects it. |
+| W12 Store-mode crash on `leaveConfirmed` | The store app recurses in `StreamClientManager.getClient` (C `:118-121`, research D). Out-of-process isolation keeps the test alive; the harness reports a driver exit as a `crashed` event and the store `leave` test expects it. *Built session 5:* `ManagedProcess` adds `crashed` {code, stackOverflow, source:"exit"} after `exited` when no `bye` was printed and the code ≠ 0 (not for processes the harness disposes); StackOverflow cannot be caught in-process, so the exit code (0xC00000FD) or stderr "Stack overflow" is the signal. |
 
 ## 5 · Shape (for B1a)
 
@@ -126,6 +126,11 @@ on Windows it runs unpatched in its own console window (`Console.Clear` throws o
 `Relay_Echo_Ack` (grown from `Join_Post_Receive`), `History_Cursor` in `tests/Harness` (Contract.Tests deferred); one
 self-test job per break (`relay`, `ack`, `info`, `cursor`, `seed-none`), all proven in CI run 36856754230. New
 divergence: SimClient `refresh` replays the new-connection cascade without a TCP reconnect (README).
+
+*Session 5 (B1a items 4–7, D-047):* scenarios `React_Delete` (cross cases), `Info_Variants`, `Unknown_Codes`, `Leave`;
+SimClient `react`, `delete`, `leave`, `inject` and events `reaction`, `deleted`, `rejected`, richer `info`; W12 crash
+synthesis; breaks `reaction`, `delete`, `delete-sign`, `admin`, `servername`, `leave` (bot) and `unknown` (client Core k,
+`break-core.ps1`). New divergence: `inject` feeds a bot-shaped s2data through `SimNode.parseProtocolMessage` (no TCP).
 
 Known limits: store mode runs on Core k (W3, hypothesis until BE-04); CI depends on the public Ixian testnet for a
 header; the receive check rules out replay after a reconnect, not a second channel list without reconnect (review R2

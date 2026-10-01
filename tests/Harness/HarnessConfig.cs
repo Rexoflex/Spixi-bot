@@ -40,6 +40,12 @@ namespace Harness
         public static readonly TimeSpan DeliveryTimeout = TimeSpan.FromSeconds(20);
 
         /// <summary>
+        /// Extra time for a process that is dying to reach `exited`/`crashed` (W12): on Windows, Environment.FailFast and
+        /// a stack overflow can be slowed by Windows Error Reporting (review session 5 R1 item 4).
+        /// </summary>
+        public static readonly TimeSpan CrashTimeout = TimeSpan.FromSeconds(30);
+
+        /// <summary>
         /// D-044 guard: how long the bot may take to load a block header from the testnet seeds. Measured 1.1-4.1 s in
         /// CI (runs 36847424722 … 36856754230); 60 s leaves room for a slow seed without hiding an outage.
         /// </summary>
