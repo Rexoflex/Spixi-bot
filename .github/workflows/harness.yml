@@ -1,0 +1,180 @@
+# Harness spike CI (session 3, D-031 / harness.md W1, W8, W11).
+# legacy: builds the OLD bot (a5a3442 code) with .NET 8 against Core f6fb55b and runs a start smoke on
+# Linux and Windows, so the platform for characterization is chosen from evidence (session 3, "measure first").
+# Core is pinned by full SHA here; submodules wait for B1b (D-030).
+name: harness
+
+on:
+  push:
+    branches: [ 'rework/bot' ]
+  pull_request:
+    branches: [ 'rework/bot' ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CORE_LEGACY_SHA: f6fb55bcefd19fd272c1d9cdb7d6d1f62f23fe3a   # xcore-0.9.7a, the bot's build pin (CLAUDE.md §4)
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+
+jobs:
+  legacy:
+    name: legacy build + smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Spixi-Bot
+        uses: actions/checkout@v4
+        with:
+          path: Spixi-Bot
+
+      # The bot csproj imports ..\..\Ixian-Core\IXICore.projitems (SpixiBot/SpixiBot.csproj), so Core must sit
+      # beside the repo folder.
+      - name: Checkout Ixian-Core (legacy pin)
+        uses: actions/checkout@v4
+        with:
+          repository: ixian-platform/Ixian-Core
+          ref: ${{ env.CORE_LEGACY_SHA }}
+          path: Ixian-Core
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # Linux: the unpatched bot cannot start (registry call, Program.cs:50/204; run 36840465376). CI-only patch.
+      - name: CI-only Linux start patch
+        if: runner.os == 'Linux'
+        shell: pwsh
+        run: ./Spixi-Bot/tests/smoke/patch-linux-start.ps1 -File Spixi-Bot/SpixiBot/Program.cs
+
+      # Build the csproj, not the sln: the sln also lists the Core .shproj. SolutionDir is set because the
+      # csproj's HTML copy target uses it.
+      - name: Build bot (Release)
+        shell: pwsh
+        run: dotnet build Spixi-Bot/SpixiBot/SpixiBot.csproj -c Release "-p:SolutionDir=${{ github.workspace }}/Spixi-Bot/"
+
+      # Windows: unpatched bot in its own console window (Console.Clear throws on redirected stdout, Program.cs:142).
+      - name: Start smoke
+        shell: pwsh
+        run: ./Spixi-Bot/tests/smoke/bot-smoke.ps1 -BotDir Spixi-Bot/SpixiBot/bin/Release/net8.0 -OutDir smoke-out ${{ runner.os == 'Windows' && '-OwnConsole' || '' }}
+
+      - name: Upload smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ matrix.os }}
+          path: smoke-out
+          if-no-files-found: warn
+
+  # Join_Post_Receive with the legacy bot and two SimClients (store + redesign rules, both on Core k: W3).
+  # The self-test variant removes the bot's chat relay first and must FAIL with the W8 marker (L5).
+  harness:
+    name: harness ${{ matrix.variant }} seed=${{ matrix.seed }} (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows only (session 3, CI run 36841419911): on Linux the old bot also hangs its API on the first
+        # settings save (Settings.saveSettings → setOption → saveSettings recursion, Settings.cs:109/:144; on
+        # Windows the nested open fails fast with a sharing violation). Production is Windows (inference).
+        os: [ windows-latest ]
+        variant: [ normal, self-test ]
+        # testnet (session 3, CI run 36847424722): with no reachable seed the old bot answers every hello with
+        # "bye: not ready" (12 attempts in 30 s; F4 refuted). With the real testnet seeds TIV gets a header in
+        # about 1 s and Join_Post_Receive passes. Network dependency until session 4 freezes a header fixture.
+        seed: [ testnet ]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      CORE_CLIENT_SHA: 097341acba9be1855383acf8215d779ca96efa02   # xcore-0.9.8k, the redesign's Core (W3)
+    steps:
+      - name: Checkout Spixi-Bot
+        uses: actions/checkout@v4
+        with:
+          path: Spixi-Bot
+
+      - name: Checkout Ixian-Core (legacy pin, for the bot)
+        uses: actions/checkout@v4
+        with:
+          repository: ixian-platform/Ixian-Core
+          ref: ${{ env.CORE_LEGACY_SHA }}
+          path: Ixian-Core
+
+      - name: Checkout Ixian-Core (client pin, for SimClient)
+        uses: actions/checkout@v4
+        with:
+          repository: ixian-platform/Ixian-Core
+          ref: ${{ env.CORE_CLIENT_SHA }}
+          path: Ixian-Core-k
+
+      - name: Setup .NET 8 and 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Deliberate break (self-test only)
+        if: matrix.variant == 'self-test'
+        shell: pwsh
+        run: ./Spixi-Bot/tests/smoke/break-relay.ps1 -File Spixi-Bot/SpixiBot/Network/StreamProcessor.cs
+
+      - name: Build bot (.NET 8, Core f6fb55b)
+        shell: pwsh
+        run: dotnet build Spixi-Bot/SpixiBot/SpixiBot.csproj -c Release "-p:SolutionDir=${{ github.workspace }}/Spixi-Bot/"
+
+      - name: Build SimClient (.NET 10, Core 097341a)
+        shell: pwsh
+        run: dotnet build Spixi-Bot/tests/SimClient/SimClient.csproj -c Release "-p:ClientCorePath=${{ github.workspace }}/Ixian-Core-k"
+
+      - name: Build harness
+        shell: pwsh
+        run: dotnet build Spixi-Bot/tests/Harness/Harness.csproj -c Release
+
+      - name: Run Join_Post_Receive
+        id: run
+        timeout-minutes: 12
+        shell: pwsh
+        env:
+          HARNESS_BOT_DIR: ${{ github.workspace }}/Spixi-Bot/SpixiBot/bin/Release/net8.0
+          HARNESS_SIMCLIENT_DLL: ${{ github.workspace }}/Spixi-Bot/tests/SimClient/bin/Release/net10.0/SimClient.dll
+          HARNESS_ARTIFACTS: ${{ github.workspace }}/harness-out
+          HARNESS_BOT_CONSOLE: ${{ runner.os == 'Windows' && '1' || '0' }}
+          HARNESS_BOT_SEED: ${{ matrix.seed }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          dotnet test Spixi-Bot/tests/Harness/Harness.csproj -c Release --no-build --logger "console;verbosity=detailed" 2>&1 | Tee-Object -FilePath harness-test.txt
+          $code = $LASTEXITCODE
+          # One marker per case (review R1 M2): the self-test needs BOTH cases to fail for the relay reason.
+          $markerA = (Select-String -Path harness-test.txt -SimpleMatch 'W8-RELAY-MISSING[store->redesign]' -Quiet)
+          $markerB = (Select-String -Path harness-test.txt -SimpleMatch 'W8-RELAY-MISSING[redesign->store]' -Quiet)
+          $marker = $markerA -and $markerB
+          # Failure details as annotations: readable via the public API without signing in (session 3).
+          . ./Spixi-Bot/tests/smoke/annotate.ps1
+          $fails = (Select-String -Path harness-test.txt -Pattern '(Failed |Error Message|HarnessTimeoutException|Assert\.)' -Context 0,3 | ForEach-Object { $_.Line + "`n" + ($_.Context.PostContext -join "`n") }) -join "`n"
+          if ($fails) { Write-Annotation -Level error -Title 'harness ${{ matrix.variant }} seed=${{ matrix.seed }} ${{ matrix.os }} failures' -Message $fails -MaxChunks 2 }
+          Get-ChildItem harness-out -Filter '*.FAILED.log' -ErrorAction SilentlyContinue | Select-Object -First 2 | ForEach-Object {
+            Write-Annotation -Level warning -Title ('log ' + $_.Name) -Message (Get-Content $_.FullName -Raw) -MaxChunks 4
+          }
+          if ('${{ matrix.variant }}' -eq 'self-test') {
+            # L5: the break must make the test fail, and for the right reason.
+            if ($code -ne 0 -and $marker) { Write-Host 'SELF-TEST OK: the broken bot failed both Join_Post_Receive cases with W8-RELAY-MISSING'; exit 0 }
+            Write-Host "SELF-TEST FAILED: exit=$code store->redesign=$markerA redesign->store=$markerB (the harness did not detect the missing relay in both cases)"; exit 1
+          }
+          exit $code
+
+      - name: Upload harness logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-${{ matrix.variant }}-${{ matrix.seed }}-${{ matrix.os }}
+          path: |
+            harness-out
+            harness-test.txt
+          if-no-files-found: warn

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Harness (D-031, docs/design/harness.md §5): starts the legacy bot process and SimClient processes and
+    waits on their events. It references neither the bot nor any Core: processes and files are the only
+    bridges (F2). Spike scope: the fixture and one scenario (Join_Post_Receive). Contract scenarios move to
+    tests/Contract.Tests in B1a proper.
+    Inputs come from environment variables (see HarnessConfig.cs); CI sets them.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Harness</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+</Project>
