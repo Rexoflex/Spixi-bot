@@ -17,9 +17,13 @@ param(
   [Parameter(Mandatory = $true)][string]$BotDir,
   [string]$OutDir = 'smoke-out',
   [int]$StartTimeoutSec = 180,
-  [int]$StaySec = 30
+  [int]$StaySec = 30,
+  # Windows: start the bot in its own console window (no redirect). Console.Clear() throws on a redirected
+  # stdout (Program.cs:142, CI run 36840465376); the log file is read instead of stdout.
+  [switch]$OwnConsole
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'annotate.ps1')
 
 function Get-FreePort {
   $l = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
@@ -45,13 +49,25 @@ $botArgs = @('SpixiBot.dll', '-t', '-n', '127.0.0.1:1', '-p', "$botPort", '-a', 
 $stdout = Join-Path $OutDir 'bot.stdout.txt'
 $stderr = Join-Path $OutDir 'bot.stderr.txt'
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
-$proc = Start-Process -FilePath 'dotnet' -ArgumentList $botArgs -WorkingDirectory $work `
-          -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -NoNewWindow
+if ($OwnConsole) {
+  $proc = Start-Process -FilePath 'dotnet' -ArgumentList $botArgs -WorkingDirectory $work -PassThru -WindowStyle Minimized
+} else {
+  $proc = Start-Process -FilePath 'dotnet' -ArgumentList $botArgs -WorkingDirectory $work `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -NoNewWindow
+}
+$logFile = Join-Path $work 'ixian.log'
+function Test-Text([string]$path, [string]$pattern) {
+  if (-not (Test-Path $path)) { return $false }
+  try {
+    $fs = [System.IO.File]::Open($path, 'Open', 'Read', 'ReadWrite'); $sr = [System.IO.StreamReader]::new($fs)
+    $t = $sr.ReadToEnd(); $sr.Dispose(); return $t -match $pattern
+  } catch { return $false }
+}
 
 $tAddr = $null; $tListen = $null; $exitedAt = $null
 while ($sw.Elapsed.TotalSeconds -lt $StartTimeoutSec) {
   if ($proc.HasExited) { $exitedAt = $sw.Elapsed.TotalSeconds; break }
-  if ($null -eq $tAddr -and (Test-Path $stdout) -and (Select-String -Path $stdout -Pattern 'Your IXIAN addresses' -Quiet)) {
+  if ($null -eq $tAddr -and ((Test-Text $stdout 'Public Node Address') -or (Test-Text $logFile 'Public Node Address'))) {
     $tAddr = [math]::Round($sw.Elapsed.TotalSeconds, 1)
   }
   if ($null -eq $tListen -and (Test-Tcp $botPort)) { $tListen = [math]::Round($sw.Elapsed.TotalSeconds, 1) }
@@ -98,6 +114,15 @@ $summary = @"
 Set-Content -Path (Join-Path $OutDir 'summary.md') -Value $summary
 if ($env:GITHUB_STEP_SUMMARY) { Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary }
 Write-Host $summary
-Write-Host '--- stdout (last 60 lines) ---'; if (Test-Path $stdout) { Get-Content $stdout -Tail 60 }
-Write-Host '--- stderr (last 60 lines) ---'; if (Test-Path $stderr) { Get-Content $stderr -Tail 60 }
+$outTail = if (Test-Path $stdout) { (Get-Content $stdout -Tail 60) -join "`n" } else { '(no stdout)' }
+$errTail = if (Test-Path $stderr) { (Get-Content $stderr -Tail 60) -join "`n" } else { '(no stderr)' }
+Write-Host '--- stdout (last 60 lines) ---'; Write-Host $outTail
+Write-Host '--- stderr (last 60 lines) ---'; Write-Host $errTail
+Write-Annotation -Level notice -Title "smoke summary $os" -Message $summary -MaxChunks 1
+if ($ok -and (Test-Path $logFile)) { Write-Annotation -Level notice -Title "smoke ixian.log $os" -Message ((Get-Content $logFile -Tail 40) -join "`n") -MaxChunks 1 }
+if (-not $ok) {
+  Write-Annotation -Level error -Title "smoke stderr $os" -Message $errTail -MaxChunks 2
+  Write-Annotation -Level error -Title "smoke stdout $os" -Message $outTail -MaxChunks 2
+  if (Test-Path $logFile) { Write-Annotation -Level warning -Title "smoke ixian.log $os" -Message ((Get-Content $logFile -Tail 80) -join "`n") -MaxChunks 3 }
+}
 if (-not $ok) { exit 1 }

@@ -22,12 +22,14 @@
 
   <Import Project="$(ClientCorePath)\IXICore.projitems" Label="Shared" />
 
-  <!-- Package versions copied from Core UnitTests/Ixian-UnitTests.csproj @ 097341a (test frameworks dropped). -->
+  <!-- Package versions from Core UnitTests/Ixian-UnitTests.csproj @ 097341a (test frameworks dropped), except
+       RocksDB: 11.1.2.3412 lacks DbOptions.SetWALTtlSeconds that Core k calls (CI run 36840465376), so it is
+       pinned to the version the redesign ships on desktop (R Spixi/Spixi.csproj:277, 10.4.2.64152). -->
   <ItemGroup>
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <PackageReference Include="FluentCommandLineParser-netstandard" Version="1.4.3.13" />
     <PackageReference Include="Mono.Nat" Version="3.0.4" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-    <PackageReference Include="RocksDB" Version="11.1.2.3412" />
+    <PackageReference Include="RocksDB" Version="10.4.2.64152" />
   </ItemGroup>
 </Project>
