@@ -31,6 +31,7 @@ namespace SimClient
         private static readonly Dictionary<string, Friend> bots = new Dictionary<string, Friend>();
         private static readonly object botsLock = new object();
         private static Timer? repinTimer;
+        private static string stage = "args";
 
         private static int Main(string[] args)
         {
@@ -65,7 +66,9 @@ namespace SimClient
             }
             catch (Exception e)
             {
-                Events.Emit("fatal", new Dictionary<string, object?> { ["error"] = e.ToString() });
+                // The stage names the start-up step that failed (CI run 36841419911: an exit before "ready").
+                Events.Emit("fatal", new Dictionary<string, object?> { ["stage"] = stage, ["error"] = e.ToString() });
+                Console.Error.WriteLine("SimClient fatal at stage " + stage + ": " + e);
                 return 2;
             }
 
@@ -82,13 +85,16 @@ namespace SimClient
         /// </summary>
         private static void Start(string data, string name, string walletPassword)
         {
+            stage = "logging";
             Directory.CreateDirectory(data);
             Logging.setOptions(50, 10, false);                       // stdout is the event channel
             Logging.start(data);
 
+            stage = "handler";
             var node = new SimNode();
             IxianHandler.init("simclient-0.1", node, NetworkType.test, false);   // R :118 (testnet here)
 
+            stage = "wallet";
             Stopwatch sw = Stopwatch.StartNew();
             WalletStorage ws = new WalletStorage(Path.Combine(data, "wallet.ixi"));
             if (!ws.generateWallet(walletPassword))
@@ -98,17 +104,22 @@ namespace SimClient
             IxianHandler.addWallet(ws);
             long keygenMs = sw.ElapsedMilliseconds;
 
+            stage = "client managers";
             PeerStorage.init(data);                                                   // R :125
             NetworkClientManager.init(new NetworkClientManagerStatic(1));             // R :128-129, never started: no seeds
             StreamClientManager.init(4, false);                                       // R :130 (no random S2 nodes here)
+            stage = "stream processor";
             SimNode.streamProcessor = new SimStreamProcessor(new SimPendingMessageProcessor(data),
                 StreamCapabilities.Incoming | StreamCapabilities.Outgoing);           // R :133-134 (IPN/Apps dropped: no push, no apps)
+            stage = "local storage";
             IxianHandler.localStorage = new LocalStorage(data, new SimLocalStorageCallbacks()); // R :142
             FriendList.init(data, true);                                              // R :147
             IxianHandler.localStorage.start();                                        // R preStart :201
             FriendList.loadContacts();                                                // R preStart :229
 
+            stage = "presence";
             PresenceList.init(IxianHandler.publicIP, 0, 'C', CoreConfig.clientKeepAliveInterval); // R :349
+            stage = "start threads";
             NetworkQueue.start();                                                     // R :352
             SimNode.streamProcessor.start();                                          // R :354
             StreamClientManager.start();
@@ -116,6 +127,7 @@ namespace SimClient
             SimStreamProcessor.StreamErrorReceived += addr => Repin();
             repinTimer = new Timer(_ => Repin(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
 
+            stage = "ready";
             Events.Emit("ready", new Dictionary<string, object?>
             {
                 ["address"] = ws.getPrimaryAddress().ToString(),
