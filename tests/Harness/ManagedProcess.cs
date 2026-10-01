@@ -65,7 +65,7 @@ namespace Harness
                 UseShellExecute = true,
                 CreateNoWindow = false,
                 WindowStyle = ProcessWindowStyle.Minimized,
-                Arguments = string.Join(" ", args),   // harness arguments contain no spaces
+                Arguments = string.Join(" ", RequireNoSpaces(args)),   // shell-execute takes one string (review R1 n1)
             };
             process = new Process { StartInfo = psi, EnableRaisingEvents = true };
             process.Exited += (s, e) =>
@@ -77,6 +77,18 @@ namespace Harness
             };
             process.Start();
             Task.Run(() => TailLoop(tailStop.Token));
+        }
+
+        private static IEnumerable<string> RequireNoSpaces(IEnumerable<string> args)
+        {
+            foreach (string a in args)
+            {
+                if (a.Length == 0 || a.Any(c => char.IsWhiteSpace(c) || c == '"'))
+                {
+                    throw new ArgumentException("own-console mode cannot pass an empty argument or one with spaces or quotes: '" + a + "'");
+                }
+            }
+            return args;
         }
 
         /// <summary>Reads new lines from the tail file as they are written (FileShare.ReadWrite: the bot keeps it open).</summary>
@@ -180,8 +192,12 @@ namespace Harness
             }
         }
 
+        /// <summary>Events that end a wait at once (review R1 n6): the process reported it cannot go on.</summary>
+        private static bool IsFatal(OutputLine l) => l.Ev is "fatal" or "crashed";
+
         /// <summary>Waits until a line (from index 0) matches. Throws HarnessTimeoutException with `what`.</summary>
-        public async Task<OutputLine> WaitFor(Func<OutputLine, bool> match, TimeSpan timeout, string what, bool failOnExit = true)
+
+        public async Task<OutputLine> WaitFor(Func<OutputLine, bool> match, TimeSpan timeout, string what, bool failOnExit = true, Func<OutputLine, bool>? failIf = null)
         {
             DateTime deadline = DateTime.UtcNow + timeout;
             while (true)
@@ -198,6 +214,14 @@ namespace Harness
                         if (failOnExit && l.Ev == "exited")
                         {
                             throw new HarnessTimeoutException($"{Name}: process exited while waiting for {what}");
+                        }
+                        if (failIf != null && failIf(l))
+                        {
+                            throw new HarnessTimeoutException($"{Name}: '{l.Ev}' while waiting for {what}: {l.Text}");
+                        }
+                        if (failOnExit && IsFatal(l))
+                        {
+                            throw new HarnessTimeoutException($"{Name}: '{l.Ev}' while waiting for {what}: {l.Text}");
                         }
                     }
                     next = changed.Task;
@@ -235,8 +259,14 @@ namespace Harness
             return sb.ToString();
         }
 
+        private int disposed;
+
         public async ValueTask DisposeAsync()
         {
+            if (Interlocked.Exchange(ref disposed, 1) == 1)
+            {
+                return;
+            }
             tailStop.Cancel();
             if (tailFile != null)
             {

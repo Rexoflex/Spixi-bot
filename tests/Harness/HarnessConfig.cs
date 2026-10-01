@@ -9,6 +9,7 @@ namespace Harness
     ///   HARNESS_SIMCLIENT_DLL  SimClient.dll built against the client Core, .NET 10
     ///   HARNESS_ARTIFACTS      optional; per-test logs are copied here (CI uploads it)
     ///   HARNESS_BOT_CONSOLE    optional; 1 = bot in its own console window, events from ixian.log (Windows)
+    ///   HARNESS_BOT_SEED       optional; testnet (default) | none
     /// </summary>
     internal static class HarnessConfig
     {
@@ -21,14 +22,14 @@ namespace Harness
         /// instead of stdout. The unpatched bot calls Console.Clear() first (Program.cs:142), which throws
         /// IOException on a redirected stdout on Windows (CI run 36840465376).
         /// </summary>
-        /// <summary>
-        /// HARNESS_BOT_SEED: "none" (default) = -n 127.0.0.1:1, an unreachable seed, no DLT (F4);
-        /// "testnet" = no -n, the bot uses Core's built-in testnet seeds so TIV can fetch real block headers
-        /// (session 3 measurement after CI run 36846606694).
-        /// </summary>
-        public static string BotSeed => Environment.GetEnvironmentVariable("HARNESS_BOT_SEED") ?? "none";
-
         public static bool BotOwnConsole => Environment.GetEnvironmentVariable("HARNESS_BOT_CONSOLE") == "1";
+
+        /// <summary>
+        /// HARNESS_BOT_SEED: "testnet" (default) = no -n, the bot uses Core's built-in testnet seeds so TIV gets a
+        /// block header (~1 s, CI run 36847424722). "none" = -n 127.0.0.1:1, no DLT: the bot then answers every
+        /// hello with "bye: not ready" (F4 refuted), so it is kept only to reproduce that finding.
+        /// </summary>
+        public static string BotSeed => Environment.GetEnvironmentVariable("HARNESS_BOT_SEED") ?? "testnet";
 
         /// <summary>
         /// W2: every wait is "until event or timeout"; the timeout is at least 3× the larger reconnect interval
